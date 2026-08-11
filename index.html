@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Placify | Personalized AI Learning Platform</title>
+  <meta name="description" content="AI-driven personalized learning platform orchestrated by the Placify Supervisor Agent and 6 specialized sub-agents.">
+  
+  <!-- Phosphor Icons & Fonts -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand-container">
+      <div class="brand-logo">
+        <i class="ph ph-sparkle"></i>
+      </div>
+      <div class="brand-text">
+        <h1>Placify AI</h1>
+        <div class="brand-tagline">Supervisor Agent & Sub-Agents Coordinator</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div id="header-user-badge" class="user-badge" style="display: none; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.8rem; border-radius: var(--radius-full); border: 1px solid var(--border-color);">
+        <i class="ph ph-user-circle" style="font-size: 1.2rem; color: var(--accent-cyan);"></i>
+        <div style="text-align: left; font-size: 0.8rem;">
+          <div id="user-display-name" style="font-weight: 700; color: var(--text-main);">User</div>
+          <div id="user-display-domain" style="font-size: 0.7rem; color: var(--text-muted);">Domain</div>
+        </div>
+        <button id="logout-btn" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; margin-left: 0.3rem;" title="Sign Out">
+          <i class="ph ph-sign-out"></i>
+        </button>
+      </div>
+
+      <div class="stat-pill level">
+        <i class="ph ph-trophy"></i>
+        <span>Lvl <strong id="user-level-val">1</strong></span>
+      </div>
+      <div class="stat-pill xp">
+        <i class="ph ph-lightning"></i>
+        <span><strong id="user-xp-val">0</strong> XP</span>
+      </div>
+      <div class="stat-pill">
+        <i class="ph ph-flame"></i>
+        <span><strong id="user-streak-val">1</strong> Day Streak</span>
+      </div>
+      <button id="reset-app-btn" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" title="Reset State & Restart">
+        <i class="ph ph-arrows-counter-clockwise"></i> Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-container">
+
+    <!-- Live Agent Terminal Console -->
+    <section class="glass-card" style="padding: 1rem; border-color: rgba(139, 92, 246, 0.3);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.85rem; color: var(--accent-violet);">
+          <i class="ph ph-cpu" style="font-size: 1.1rem;"></i>
+          <span>Placify Agent Network Activity Stream</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">
+          Active Coordinator: <strong style="color: var(--accent-cyan);">Supervisor Agent & Auth Specialist</strong>
+        </div>
+      </div>
+      <div id="agent-console" class="agent-console">
+        <!-- Live log entries appended here -->
+      </div>
+    </section>
+
+    <!-- VIEW 1: Auth & Onboarding Phase -->
+    <section id="view-onboarding" class="view-section active">
+      <div class="glass-card">
+        <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span><i class="ph ph-shield-check"></i> Placify Authentication & Onboarding Specialist</span>
+          <span style="font-size: 0.75rem; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); padding: 0.25rem 0.75rem; border-radius: 50px;">
+            Secure Entry Point
+          </span>
+        </div>
+        <p class="section-subtitle">Register a new account or sign in to initialize secure password authentication, domain selection, and timeline onboarding.</p>
+
+        <!-- Auth Mode Selector Tabs -->
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab active" id="tab-register-btn">
+            <i class="ph ph-user-plus"></i> New User Registration
+          </button>
+          <button type="button" class="auth-tab" id="tab-login-btn">
+            <i class="ph ph-sign-in"></i> Existing User Sign In
+          </button>
+        </div>
+
+        <!-- TAB 1: REGISTRATION FORM -->
+        <div id="auth-register-panel" class="auth-panel active">
+          <form id="registration-form">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;">
+              <div class="form-group">
+                <label for="reg-name"><i class="ph ph-user"></i> Full Name (`name`): <span style="color: var(--accent-rose);">*</span></label>
+                <input type="text" id="reg-name" class="form-control" placeholder="e.g. Alex Johnson" required>
+              </div>
+
+              <div class="form-group">
+                <label for="reg-email"><i class="ph ph-envelope"></i> Email Address (`email`): <span style="color: var(--accent-rose);">*</span></label>
+                <input type="email" id="reg-email" class="form-control" placeholder="e.g. alex@example.com" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-password"><i class="ph ph-lock"></i> Password (`password` - Min 6 Chars, Hashed via SHA-256 PBKDF2): <span style="color: var(--accent-rose);">*</span></label>
+              <input type="password" id="reg-password" class="form-control" placeholder="••••••••" minlength="6" required>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem;">
+                <i class="ph ph-shield-check" style="color: var(--accent-emerald);"></i> Stored securely using SHA-256 PBKDF2 with 100,000 iterations & 16-byte random salt.
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label><i class="ph ph-compass"></i> Target Tech Domain (`chosen_domain`):</label>
+              <div id="domain-grid" class="domain-grid">
+                <!-- Dynamically populated tech domains -->
+              </div>
+              <input type="hidden" id="selected-domain-id" value="fullstack" required>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+              <div class="form-group">
+                <label for="timeline-weeks"><i class="ph ph-calendar"></i> Preparation Timeline (`timeline_weeks`):</label>
+                <select id="timeline-weeks" class="form-control">
+                  <option value="4" selected>4 Weeks (Default Standard Boot Camp)</option>
+                  <option value="6">6 Weeks (Recommended Standard)</option>
+                  <option value="8">8 Weeks (Comprehensive Depth)</option>
+                  <option value="12">12 Weeks (Extended Mastery)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="daily-hours"><i class="ph ph-clock"></i> Daily Commitment (`daily_hours`):</label>
+                <select id="daily-hours" class="form-control">
+                  <option value="2.0" selected>2.0 Hours / Day (Default Part-Time)</option>
+                  <option value="4.0">4.0 Hours / Day (Recommended)</option>
+                  <option value="6.0">6.0 Hours / Day (Full-time Intensive)</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="reg-error-alert" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
+
+            <div style="margin-top: 1.5rem; text-align: right;">
+              <button type="submit" class="btn btn-primary" id="register-btn">
+                Complete Registration & Pass to `quiz_evaluator` <i class="ph ph-arrow-right"></i>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- TAB 2: LOGIN FORM -->
+        <div id="auth-login-panel" class="auth-panel">
+          <form id="login-form">
+            <div style="max-width: 500px; margin: 0 auto;">
+              <div class="form-group">
+                <label for="login-email"><i class="ph ph-envelope"></i> Email Address (`email`): <span style="color: var(--accent-rose);">*</span></label>
+                <input type="email" id="login-email" class="form-control" placeholder="e.g. alex@example.com" required>
+              </div>
+
+              <div class="form-group">
+                <label for="login-password"><i class="ph ph-lock"></i> Password (`password`): <span style="color: var(--accent-rose);">*</span></label>
+                <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
+              </div>
+
+              <!-- HTTP 401 Unauthorized Error Alert -->
+              <div id="login-error-alert" class="alert-box alert-401" style="display: none; margin-top: 1rem;">
+                <!-- Error content rendered here -->
+              </div>
+
+              <div style="margin-top: 1.5rem; text-align: center;">
+                <button type="submit" class="btn btn-emerald" style="width: 100%; padding: 0.8rem;">
+                  <i class="ph ph-sign-in"></i> Sign In & Pass User to `quiz_evaluator`
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- VIEW 2: Diagnostic Quiz Phase -->
+    <section id="view-diagnostic" class="view-section">
+      <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <div class="section-title">
+              <i class="ph ph-clipboard-text"></i>
+              Phase 2: Diagnostic Skill Evaluation
+            </div>
+            <p class="section-subtitle" style="margin-bottom: 0;">Delegating assessment to <strong style="color: var(--accent-rose);">`quiz_evaluator`</strong> sub-agent...</p>
+          </div>
+          <div style="background: rgba(139, 92, 246, 0.15); color: var(--accent-violet); padding: 0.4rem 0.8rem; border-radius: 50px; font-size: 0.85rem; font-weight: 700;">
+            5 Key Concepts
+          </div>
+        </div>
+
+        <form id="diagnostic-quiz-form" class="quiz-container">
+          <div id="diagnostic-questions-container">
+            <!-- Dynamically populated diagnostic questions -->
+          </div>
+
+          <div style="margin-top: 1.5rem; text-align: right;">
+            <button type="submit" class="btn btn-emerald">
+              Submit Answers to `quiz_evaluator` <i class="ph ph-check-circle"></i>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- VIEW 3: Skill Assessment & Gap Report -->
+    <section id="view-assessment-report" class="view-section">
+      <div class="glass-card">
+        <div class="section-title">
+          <i class="ph ph-chart-polar"></i>
+          Phase 2 Output: Diagnostic Evaluation & Gap Report
+        </div>
+        <p class="section-subtitle">Evaluated by <strong style="color: var(--accent-rose);">`quiz_evaluator`</strong>. The Supervisor Agent will now pass these parameters to <strong style="color: var(--accent-cyan);">`roadmap_generator`</strong> and <strong style="color: var(--accent-violet);">`personalized_roadmap`</strong>.</p>
+
+        <div class="assessment-results-grid">
+          <!-- Left: Tier Card -->
+          <div class="glass-card tier-badge-card">
+            <span style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: 600;">Established Baseline</span>
+            <div id="tier-score-display" class="tier-score-ring">0%</div>
+            <div id="tier-label-display" class="tier-label BEGINNER">BEGINNER</div>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 1rem;" id="tier-summary-text">Initial baseline calculated based on diagnostic domain accuracy.</p>
+          </div>
+
+          <!-- Right: Gaps and Mastered breakdown -->
+          <div style="display: flex; flex-direction: column; gap: 1.2rem;">
+            <div>
+              <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.8rem; color: var(--accent-rose); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ph ph-warning-circle"></i> Identified Knowledge Gaps (<span id="gap-count-num">0</span>)
+              </h3>
+              <div id="gaps-list-container">
+                <!-- Dynamically filled with gap items -->
+              </div>
+            </div>
+
+            <div>
+              <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.8rem; color: var(--accent-emerald); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ph ph-check-square"></i> Mastered Prerequisites (<span id="mastered-count-num">0</span>)
+              </h3>
+              <div id="mastered-list-container">
+                <!-- Dynamically filled -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 2rem; text-align: right;">
+          <button id="build-roadmap-btn" class="btn btn-primary">
+            Build Personalized Milestone Roadmap <i class="ph ph-tree-structure"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 4: Personalized Milestone Roadmap -->
+    <section id="view-roadmap" class="view-section">
+      <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <div class="section-title">
+              <i class="ph ph-git-fork"></i>
+              Phase 3: Adaptive Milestone Roadmap
+            </div>
+            <p class="section-subtitle" style="margin-bottom: 0;">Generated by <strong style="color: var(--accent-cyan);">`roadmap_generator`</strong> & customized by <strong style="color: var(--accent-violet);">`personalized_roadmap`</strong>.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span class="node-tag REMEDIAL" id="injected-tag-count">0 Injected Remedial</span>
+            <span class="node-tag SKIPPED" id="skipped-tag-count">0 Skipped Topics</span>
+          </div>
+        </div>
+
+        <div id="roadmap-nodes-container" class="roadmap-timeline">
+          <!-- Dynamically populated roadmap nodes -->
+        </div>
+
+        <div style="margin-top: 1.8rem; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.9rem; color: var(--text-muted);">
+            Ready to start Daily Task 1?
+          </div>
+          <button id="enter-daily-hub-btn" class="btn btn-emerald">
+            Enter Daily Learning Hub <i class="ph ph-play-circle"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 5: Daily Learning Hub & Resource Curation -->
+    <section id="view-daily-hub" class="view-section">
+      <div class="daily-hub-layout">
+        <!-- Main: Current Day Concept & Materials -->
+        <div class="glass-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div>
+              <span id="current-day-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-violet); font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px; text-transform: uppercase;">
+                Day 1 Task
+              </span>
+              <h2 id="current-task-title" style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; margin-top: 0.4rem;">
+                Topic Concept Title
+              </h2>
+            </div>
+            <span id="task-type-badge" class="node-tag STANDARD">STANDARD</span>
+          </div>
+
+          <div style="margin: 1.5rem 0;">
+            <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; color: var(--accent-cyan);">
+              <i class="ph ph-books"></i> Recommended Resources (Curated by `resource_suggester`)
+            </h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Tier-matched level recommendations (<strong id="current-tier-recommendation">BEGINNER</strong>) for optimal comprehension:
+            </p>
+            <div id="suggested-resources-list">
+              <!-- Dynamically populated resource cards -->
+            </div>
+          </div>
+
+          <div style="margin-top: 2rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 1.2rem;">
+            <button id="view-all-roadmap-btn" class="btn btn-secondary">
+              <i class="ph ph-list-bullets"></i> View Full Roadmap
+            </button>
+            <button id="start-concept-quiz-btn" class="btn btn-emerald">
+              Take Concept Assessment (`resource_fetcher`) <i class="ph ph-note-pencil"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sidebar: User Stats & Progress Summary -->
+        <div class="glass-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ph ph-chart-line-up" style="color: var(--accent-emerald);"></i> Domain Mastery
+            </h3>
+            <div style="display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.4rem;">
+              <span>Overall Progress</span>
+              <span id="mastery-pct-num">0%</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="mastery-bar-fill" class="progress-bar-fill"></div>
+            </div>
+
+            <div style="margin-top: 1.5rem;">
+              <h4 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.6rem; color: var(--text-muted);">
+                Unlocked Badges (<span id="badge-count-num">1</span>)
+              </h4>
+              <div id="user-badge-grid" class="badge-grid">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 1.5rem; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); padding: 1rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ph ph-lightning"></i> Level Up Eligible?
+            </div>
+            <div id="level-up-status-text" style="font-size: 0.8rem; color: var(--text-muted);">
+              Complete daily assessments to earn XP and trigger skill tier upgrades!
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 6: Concept Assessment Quiz (Resource Fetcher Output) -->
+    <section id="view-concept-quiz" class="view-section">
+      <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <div class="section-title">
+              <i class="ph ph-seal-check"></i>
+              Phase 5: Concept Assessment
+            </div>
+            <p class="section-subtitle" style="margin-bottom: 0;">Synthesized by <strong style="color: var(--accent-cyan);">`resource_fetcher`</strong>. Grounded directly in your daily learning materials.</p>
+          </div>
+          <span style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); padding: 0.35rem 0.8rem; border-radius: 50px; font-size: 0.8rem; font-weight: 700;">
+            Pass Mark: 70%
+          </span>
+        </div>
+
+        <!-- Grounded content summary box -->
+        <div style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 1.5rem; font-size: 0.88rem; line-height: 1.5;">
+          <strong style="color: var(--accent-cyan);"><i class="ph ph-file-text"></i> Grounded Resource Context:</strong>
+          <span id="quiz-grounded-summary">Loading resource context summary...</span>
+        </div>
+
+        <form id="concept-assessment-form" class="quiz-container">
+          <div id="concept-quiz-questions-container">
+            <!-- Dynamically populated concept quiz questions -->
+          </div>
+
+          <div style="margin-top: 1.5rem; text-align: right;">
+            <button type="submit" class="btn btn-emerald">
+              Submit Assessment & Log Progress <i class="ph ph-paper-plane-right"></i>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- VIEW 7: Progress & Mastery Dashboard -->
+    <section id="view-progress-analytics" class="view-section">
+      <div class="glass-card">
+        <div class="section-title">
+          <i class="ph ph-chart-bar-horizontal"></i>
+          Phase 6: Mastery & Progress Analytics Studio
+        </div>
+        <p class="section-subtitle">Managed by <strong style="color: var(--accent-emerald);">`progress_tracker`</strong>. Real-time updates on mastery %, streaks, XP gain, and skill tier upgrades.</p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.2rem; margin-bottom: 2rem;">
+          <div class="glass-card" style="text-align: center; padding: 1.2rem;">
+            <i class="ph ph-percent" style="font-size: 2rem; color: var(--accent-violet);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-mastery-num">0%</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Domain Mastery</div>
+          </div>
+
+          <div class="glass-card" style="text-align: center; padding: 1.2rem;">
+            <i class="ph ph-flame" style="font-size: 2rem; color: var(--accent-amber);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-streak-num">1</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Current Streak (Days)</div>
+          </div>
+
+          <div class="glass-card" style="text-align: center; padding: 1.2rem;">
+            <i class="ph ph-lightning" style="font-size: 2rem; color: var(--accent-cyan);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-xp-num">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Total XP Earned</div>
+          </div>
+
+          <div class="glass-card" style="text-align: center; padding: 1.2rem;">
+            <i class="ph ph-shield-check" style="font-size: 2rem; color: var(--accent-emerald);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-tier-name">BEGINNER</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Current Skill Tier</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; text-align: center;">
+          <button id="continue-learning-btn" class="btn btn-primary">
+            Continue Next Daily Learning Task <i class="ph ph-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Load Application Scripts -->
+  <script src="js/data.js"></script>
+  <script src="js/agents.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
