@@ -40,6 +40,16 @@ document.addEventListener('DOMContentLoaded', () => {
       views[viewKey].classList.add('active');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+
+    // Asynchronously persist last_route in MongoDB Atlas for authenticated users
+    const activeSession = supervisor.authAgent.getActiveSession();
+    if (activeSession && activeSession.user_id && viewKey !== 'onboarding' && viewKey !== 'diagnostic') {
+      fetch('http://localhost:5000/api/user/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeSession.user_id, last_route: viewKey })
+      }).catch(e => console.warn('Could not persist last_route to DB:', e));
+    }
   }
 
   function updateHeaderStats() {
@@ -82,6 +92,68 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Domain Grid Rendering
+  function renderDomainGrid() {
+    const grid = document.getElementById('domain-grid');
+    const selectedInput = document.getElementById('selected-domain-id');
+
+    if (!grid || !selectedInput) return;
+
+    const domainsList = (window.PLACIFY_DATA && window.PLACIFY_DATA.domains) ? window.PLACIFY_DATA.domains : [];
+
+    grid.innerHTML = domainsList.map((d, index) => `
+      <div class="domain-card ${index === 0 ? 'selected' : ''}" data-id="${d.id}">
+        <div class="domain-icon"><i class="ph ${d.icon}"></i></div>
+        <h3>${d.name}</h3>
+        <p>${d.description}</p>
+      </div>
+    `).join('');
+
+    // Set initial value to first domain if not set
+    if (domainsList.length > 0 && (!selectedInput.value || selectedInput.value === 'fullstack')) {
+      selectedInput.value = domainsList[0].id;
+    }
+
+    grid.querySelectorAll('.domain-card').forEach(card => {
+      card.addEventListener('click', () => {
+        grid.querySelectorAll('.domain-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedInput.value = card.dataset.id;
+      });
+    });
+  }
+
+  // Render Domain Grid immediately
+  renderDomainGrid();
+
+  // Restore Active Session on Load
+  const activeSession = supervisor.authAgent.getActiveSession();
+  if (activeSession && activeSession.user_id) {
+    updateHeaderUserPill(activeSession);
+    window.currentDraftProfile = {
+      user_id: activeSession.user_id,
+      name: activeSession.name,
+      domainId: activeSession.chosen_domain,
+      chosen_domain: activeSession.chosen_domain,
+      timelineMonths: activeSession.timeline_months || 4,
+      dailyHours: activeSession.daily_hours || 2.0
+    };
+
+    supervisor.checkUserOnboardingState(activeSession.user_id).then(async (state) => {
+      if (state.action === 'QUIZ') {
+        renderDiagnosticQuiz(activeSession.chosen_domain || 'fullstack');
+        switchView('diagnostic');
+      } else {
+        if (state.roadmap) {
+          await renderRoadmapView(state.roadmap);
+        }
+        switchView(state.route || 'roadmap');
+      }
+    }).catch(err => {
+      console.warn('Session restore check error:', err);
+    });
+  }
+
   // Logout Handler
   document.getElementById('logout-btn').addEventListener('click', () => {
     supervisor.authAgent.clearSession();
@@ -100,41 +172,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const panelReg = document.getElementById('auth-register-panel');
   const panelLogin = document.getElementById('auth-login-panel');
 
-  tabRegBtn.addEventListener('click', () => {
+  tabRegBtn.addEventListener('click', (e) => {
+    e.preventDefault();
     tabRegBtn.classList.add('active');
     tabLoginBtn.classList.remove('active');
+    panelReg.style.display = 'block';
     panelReg.classList.add('active');
+    panelLogin.style.display = 'none';
     panelLogin.classList.remove('active');
   });
 
-  tabLoginBtn.addEventListener('click', () => {
+  tabLoginBtn.addEventListener('click', (e) => {
+    e.preventDefault();
     tabLoginBtn.classList.add('active');
     tabRegBtn.classList.remove('active');
+    panelLogin.style.display = 'block';
     panelLogin.classList.add('active');
+    panelReg.style.display = 'none';
     panelReg.classList.remove('active');
   });
-
-  // Domain Grid Rendering
-  function renderDomainGrid() {
-    const grid = document.getElementById('domain-grid');
-    const selectedInput = document.getElementById('selected-domain-id');
-
-    grid.innerHTML = window.PLACIFY_DATA.domains.map((d, index) => `
-      <div class="domain-card ${index === 0 ? 'selected' : ''}" data-id="${d.id}">
-        <div class="domain-icon"><i class="ph ${d.icon}"></i></div>
-        <h3>${d.name}</h3>
-        <p>${d.description}</p>
-      </div>
-    `).join('');
-
-    grid.querySelectorAll('.domain-card').forEach(card => {
-      card.addEventListener('click', () => {
-        grid.querySelectorAll('.domain-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        selectedInput.value = card.dataset.id;
-      });
-    });
-  }
 
   // Registration Form Handler
   const registrationForm = document.getElementById('registration-form');
@@ -186,13 +242,31 @@ document.addEventListener('DOMContentLoaded', () => {
         dailyHours: profile.daily_hours
       };
 
-      // 2. POST-AUTH ACTION: Pass user_id and chosen_domain to quiz_evaluator
+      // 2. NEW USER: Pass user_id and chosen_domain to diagnostic quiz
       renderDiagnosticQuiz(profile.chosen_domain);
       switchView('diagnostic');
 
     } catch (err) {
-      regAlert.textContent = err.message || 'Registration failed.';
-      regAlert.style.display = 'flex';
+      if (err.status === 409 || (err.message && err.message.toLowerCase().includes('already exists'))) {
+        regAlert.innerHTML = `
+          <i class="ph ph-warning" style="font-size: 1.2rem; color: #f87171;"></i>
+          <div>
+            <strong>${err.message || 'An account with this email address already exists.'}</strong><br>
+            <a href="#" id="switch-to-login-link" style="color: var(--accent-cyan); font-weight: 700; text-decoration: underline; font-size: 0.85rem; margin-top: 0.3rem; display: inline-block;">Click here to switch to Existing User Sign In</a>
+          </div>
+        `;
+        regAlert.style.display = 'flex';
+        const link = document.getElementById('switch-to-login-link');
+        if (link) {
+          link.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            tabLoginBtn.click();
+          });
+        }
+      } else {
+        regAlert.textContent = err.message || 'Registration failed.';
+        regAlert.style.display = 'flex';
+      }
     }
   });
 
@@ -223,17 +297,35 @@ document.addEventListener('DOMContentLoaded', () => {
         dailyHours: profile.daily_hours
       };
 
-      // 2. POST-AUTH ACTION: Pass user_id and chosen_domain to quiz_evaluator
-      renderDiagnosticQuiz(profile.chosen_domain);
-      switchView('diagnostic');
+      // 2. CHECK AUTHORITATIVE MONGODB ONBOARDING STATE
+      const onboardingState = await supervisor.checkUserOnboardingState(profile.user_id);
+
+      if (onboardingState.action === 'QUIZ') {
+        // New user / incomplete quiz -> Diagnostic Quiz
+        renderDiagnosticQuiz(profile.chosen_domain);
+        switchView('diagnostic');
+      } else {
+        // Returning user with quiz_completed = true!
+        // DO NOT SHOW DIAGNOSTIC QUIZ AGAIN.
+        if (onboardingState.roadmap) {
+          await renderRoadmapView(onboardingState.roadmap);
+        }
+        const routeToSwitch = onboardingState.route || 'roadmap';
+        if (routeToSwitch === 'dailyHub') {
+          const userState = supervisor.progressTracker.getUserState();
+          const activeDay = (userState && userState.currentDayIndex !== undefined) ? userState.currentDayIndex + 1 : 1;
+          renderDailyHub(activeDay);
+        }
+        switchView(routeToSwitch);
+      }
 
     } catch (err) {
-      // Render HTTP 401 Unauthorized clear message
+      const isFetchError = err.message && err.message.includes('Failed to fetch');
       loginAlert.innerHTML = `
         <i class="ph ph-warning-octagon" style="font-size: 1.5rem; color: #f87171;"></i>
         <div>
-          <strong style="color: #ef4444;">${err.status === 401 ? 'HTTP 401 Unauthorized' : 'Authentication Error'}</strong><br>
-          <span style="font-size: 0.85rem;">${err.message || 'Invalid email or password credentials.'}</span>
+          <strong style="color: #ef4444;">${isFetchError ? 'Server Connection Error' : (err.status === 401 ? 'HTTP 401 Unauthorized' : 'Authentication Error')}</strong><br>
+          <span style="font-size: 0.85rem;">${isFetchError ? 'Placify backend server is offline. Please run "node server.js" in PowerShell terminal to start port 5000.' : (err.message || 'Invalid email or password credentials.')}</span>
         </div>
       `;
       loginAlert.style.display = 'flex';
@@ -446,7 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const diagnosticForm = document.getElementById('diagnostic-quiz-form');
-  diagnosticForm.addEventListener('submit', (e) => {
+  diagnosticForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     if (!currentDiagnosticDomainObj) return;
@@ -479,11 +571,30 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Delegate to Supervisor
-    const result = supervisor.startLearningJourney(window.currentDraftProfile, diagnosticUserAnswers);
-    renderAssessmentReport(result.evaluation, result.personalizedRoadmap);
-    updateHeaderStats();
-    switchView('assessmentReport');
+    // Show automatic roadmap generation loading overlay
+    const overlay = document.getElementById('roadmap-loading-overlay');
+    if (overlay) overlay.style.display = 'flex';
+
+    try {
+      // Delegate to Supervisor: Evaluates quiz, saves score & quiz_completed: true, auto-generates roadmap
+      const result = await supervisor.startLearningJourney(window.currentDraftProfile, diagnosticUserAnswers);
+      
+      // Hide loading overlay
+      if (overlay) overlay.style.display = 'none';
+
+      // Render Assessment Report & Render Roadmap
+      renderAssessmentReport(result.evaluation, result.personalizedRoadmap);
+      await renderRoadmapView(result.personalizedRoadmap);
+      updateHeaderStats();
+
+      // Display Diagnostic Evaluation & Topic-Wise Proficiency Report page first!
+      switchView('assessmentReport');
+
+    } catch (err) {
+      if (overlay) overlay.style.display = 'none';
+      console.error('Error during quiz evaluation and roadmap generation:', err);
+      alert('Error generating roadmap: ' + err.message);
+    }
   });
 
   // =========================================================================
@@ -610,39 +721,368 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  document.getElementById('build-roadmap-btn').addEventListener('click', () => {
+  document.getElementById('build-roadmap-btn').addEventListener('click', async () => {
     const state = supervisor.progressTracker.getUserState();
-    renderRoadmapView(state.personalizedRoadmap);
+    await renderRoadmapView(state.personalizedRoadmap);
     switchView('roadmap');
   });
 
   // =========================================================================
-  // VIEW 4: ROADMAP VISUALIZATION
+  // VIEW 4: PERSONALIZED DYNAMIC ROADMAP VISUALIZATION (3-LEVEL HIERARCHY)
   // =========================================================================
-  function renderRoadmapView(roadmap) {
-    document.getElementById('injected-tag-count').textContent = `${roadmap.injectedCount} Injected Remedial`;
-    document.getElementById('skipped-tag-count').textContent = `${roadmap.skippedCount} Skipped Topics`;
+  let currentSelectedMonthObj = null;
+  let currentSelectedWeekObj = null;
+
+  async function renderRoadmapView(roadmapData) {
+    let roadmap = roadmapData;
+    const activeSession = supervisor.authAgent.getActiveSession();
+    const userId = activeSession ? activeSession.user_id : (window.currentDraftProfile ? window.currentDraftProfile.user_id : null);
+
+    if (!roadmap && userId) {
+      try {
+        const res = await fetch(`http://localhost:5000/api/roadmap/user/${userId}`);
+        const json = await res.json();
+        if (json.success && json.roadmap) {
+          roadmap = json.roadmap;
+        }
+      } catch (err) {
+        console.warn('Could not fetch server roadmap:', err);
+      }
+    }
+
+    if (!roadmap) {
+      const state = supervisor.progressTracker.getUserState();
+      roadmap = state.personalizedRoadmap;
+    }
+
+    if (!roadmap) {
+      document.getElementById('roadmap-nodes-container').innerHTML = `
+        <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+          <i class="ph ph-warning-circle" style="font-size: 2.5rem; color: var(--accent-amber); margin-bottom: 0.8rem;"></i>
+          <h3>No Active Roadmap Found</h3>
+          <p style="font-size: 0.9rem; margin-top: 0.4rem;">Complete the diagnostic quiz or click <strong>Regenerate Roadmap</strong> to generate your personalized learning plan.</p>
+        </div>
+      `;
+      return;
+    }
+
+    window.activePersonalizedRoadmap = roadmap;
+
+    const domainTag = document.getElementById('roadmap-domain-tag');
+    if (domainTag) domainTag.textContent = roadmap.domain_id || 'DOM';
+    
+    document.getElementById('rm-summary-domain').textContent = roadmap.domain || 'Full-Stack Web Development';
+    document.getElementById('rm-summary-timeline').textContent = `${roadmap.timeline_months || 4} Months`;
+    document.getElementById('rm-summary-hours').textContent = `${roadmap.daily_hours || 2.0} Hours / Day`;
+    document.getElementById('rm-summary-score').textContent = roadmap.quiz_score !== null && roadmap.quiz_score !== undefined ? `${roadmap.quiz_score}%` : 'Unassessed';
+
+    renderMonthlyView(roadmap);
+  }
+
+  function renderMonthlyView(roadmap) {
+    currentSelectedMonthObj = null;
+    currentSelectedWeekObj = null;
+
+    document.getElementById('roadmap-level-indicator').textContent = 'Level 1: Monthly Roadmap';
+    const navMonths = document.getElementById('nav-level-months');
+    const navWeeks = document.getElementById('nav-level-weeks');
+    const navDays = document.getElementById('nav-level-days');
+
+    navMonths.classList.add('active');
+    navWeeks.classList.remove('active');
+    navWeeks.disabled = true;
+    navDays.classList.remove('active');
+    navDays.disabled = true;
 
     const container = document.getElementById('roadmap-nodes-container');
-    container.innerHTML = roadmap.milestones.map((m, idx) => `
-      <div class="roadmap-node ${m.type} ${m.status}">
-        <div>
-          <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem;">
-            <span class="node-tag ${m.type}">${m.type}</span>
-            <span style="font-size: 0.75rem; color: var(--text-muted);">Week ${m.targetWeek}</span>
+    const monthlyList = roadmap.monthly_roadmap || [];
+
+    if (monthlyList.length === 0 && roadmap.milestones) {
+      // Legacy milestones fallback render
+      container.innerHTML = roadmap.milestones.map((m, idx) => `
+        <div class="roadmap-node ${m.type} ${m.status}">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem;">
+              <span class="node-tag ${m.type}">${m.type}</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">Week ${m.targetWeek}</span>
+            </div>
+            <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main);">${m.title}</h4>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+              ${m.skipReason || m.reason || `Target Topic: ${m.topic}`}
+            </p>
           </div>
-          <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main);">${m.title}</h4>
-          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
-            ${m.skipReason || m.reason || `Target Topic: ${m.topic}`}
-          </p>
+          <div style="text-align: right;">
+            <div style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">${m.estHours} hrs</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">${m.status}</div>
+          </div>
         </div>
-        <div style="text-align: right;">
-          <div style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">${m.estHours} hrs</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">${m.status}</div>
+      `).join('');
+      return;
+    }
+
+    if (monthlyList.length === 0) {
+      container.innerHTML = `<div style="padding: 2rem; color: var(--text-muted);">No monthly data available in roadmap.</div>`;
+      return;
+    }
+
+    container.innerHTML = monthlyList.map((m, idx) => {
+      let priorityColor = 'var(--accent-cyan)';
+      if (m.priority === 'HIGH') priorityColor = 'var(--accent-rose)';
+      else if (m.priority === 'MEDIUM') priorityColor = '#f59e0b';
+
+      return `
+        <div class="glass-card month-card" data-midx="${idx}" style="margin-bottom: 1.2rem; border-left: 4px solid ${priorityColor}; cursor: pointer; transition: transform 0.2s, border-color 0.2s;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem;">
+            <div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem;">
+                <span class="node-tag ${m.priority === 'HIGH' ? 'REMEDIAL' : 'STANDARD'}">Month ${m.month_number}</span>
+                <span class="tier-badge ${m.difficulty || 'INTERMEDIATE'}">${m.difficulty || 'INTERMEDIATE'}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">${m.weeks ? m.weeks.length : 4} Weeks</span>
+              </div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0.3rem 0;">${m.title}</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.6rem; line-height: 1.4;">${m.objective}</p>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 0.9rem; font-weight: 700; color: var(--accent-cyan);">${m.estimated_hours} Hours</div>
+              <button class="btn btn-secondary btn-view-weeks" data-midx="${idx}" style="font-size: 0.78rem; padding: 0.3rem 0.7rem; margin-top: 0.5rem;">
+                Explore Weeks <i class="ph ph-arrow-right"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style="margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; gap: 0.6rem; flex-wrap: wrap;">
+            ${(m.topics || []).map(t => `<span style="font-size: 0.75rem; background: rgba(255,255,255,0.06); color: var(--accent-emerald); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600;">📌 ${t}</span>`).join('')}
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
+
+    container.querySelectorAll('.month-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        const midx = parseInt(card.dataset.midx, 10);
+        const monthObj = monthlyList[midx];
+        if (monthObj) {
+          renderWeeklyView(roadmap, monthObj);
+        }
+      });
+    });
   }
+
+  function renderWeeklyView(roadmap, monthObj) {
+    currentSelectedMonthObj = monthObj;
+    currentSelectedWeekObj = null;
+
+    document.getElementById('roadmap-level-indicator').textContent = `Level 2: Month ${monthObj.month_number} Weekly Roadmap`;
+    const navMonths = document.getElementById('nav-level-months');
+    const navWeeks = document.getElementById('nav-level-weeks');
+    const navDays = document.getElementById('nav-level-days');
+
+    navMonths.classList.remove('active');
+    navWeeks.classList.add('active');
+    navWeeks.disabled = false;
+    navWeeks.textContent = `Month ${monthObj.month_number} Weeks`;
+    navDays.classList.remove('active');
+    navDays.disabled = true;
+
+    const container = document.getElementById('roadmap-nodes-container');
+    const weeklyList = monthObj.weeks || [];
+
+    if (weeklyList.length === 0) {
+      container.innerHTML = `<div style="padding: 2rem; color: var(--text-muted);">No weeks found for Month ${monthObj.month_number}.</div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="margin-bottom: 1rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); padding: 0.8rem 1rem; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+        <div>
+          <strong style="color: var(--accent-violet);">Parent Month ${monthObj.month_number}:</strong> ${monthObj.title}
+        </div>
+        <button id="back-to-months-btn" class="btn btn-secondary" style="font-size: 0.78rem; padding: 0.3rem 0.6rem;">
+          <i class="ph ph-arrow-left"></i> Back to Monthly View
+        </button>
+      </div>
+
+      ${weeklyList.map((w, idx) => `
+        <div class="glass-card week-card" data-widx="${idx}" style="margin-bottom: 1rem; cursor: pointer; border-left: 4px solid var(--accent-violet);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem;">
+            <div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem;">
+                <span class="node-tag STANDARD">Week ${w.week_number}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">${w.days ? w.days.length : 7} Days</span>
+              </div>
+              <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0.2rem 0;">${w.title}</h4>
+              <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">${w.objective}</p>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);">${w.estimated_hours} Hours</div>
+              <button class="btn btn-secondary btn-view-days" data-widx="${idx}" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; margin-top: 0.4rem;">
+                View Day Tasks <i class="ph ph-caret-right"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style="margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px;">
+            <div><strong>Practice Focus:</strong> ${w.practice || 'Coding drills'}</div>
+            <div><strong>Revision Focus:</strong> ${w.revision || 'Concept recap'}</div>
+            <div><strong>Assessment:</strong> ${w.assessment || 'Weekly quiz'}</div>
+          </div>
+        </div>
+      `).join('')}
+    `;
+
+    document.getElementById('back-to-months-btn').addEventListener('click', () => {
+      renderMonthlyView(roadmap);
+    });
+
+    container.querySelectorAll('.week-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const widx = parseInt(card.dataset.widx, 10);
+        const weekObj = weeklyList[widx];
+        if (weekObj) {
+          renderDayView(roadmap, monthObj, weekObj);
+        }
+      });
+    });
+  }
+
+  function renderDayView(roadmap, monthObj, weekObj) {
+    currentSelectedWeekObj = weekObj;
+
+    document.getElementById('roadmap-level-indicator').textContent = `Level 3: Week ${weekObj.week_number} Day-Wise Tasks`;
+    const navMonths = document.getElementById('nav-level-months');
+    const navWeeks = document.getElementById('nav-level-weeks');
+    const navDays = document.getElementById('nav-level-days');
+
+    navMonths.classList.remove('active');
+    navWeeks.classList.remove('active');
+    navDays.classList.add('active');
+    navDays.disabled = false;
+    navDays.textContent = `Week ${weekObj.week_number} Days`;
+
+    const container = document.getElementById('roadmap-nodes-container');
+    const daysList = weekObj.days || [];
+
+    container.innerHTML = `
+      <div style="margin-bottom: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.8rem 1rem; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+        <div>
+          <strong style="color: var(--accent-emerald);">Parent Week ${weekObj.week_number}:</strong> ${weekObj.title}
+        </div>
+        <button id="back-to-weeks-btn" class="btn btn-secondary" style="font-size: 0.78rem; padding: 0.3rem 0.6rem;">
+          <i class="ph ph-arrow-left"></i> Back to Weeks
+        </button>
+      </div>
+
+      ${daysList.map(d => `
+        <div class="glass-card" style="margin-bottom: 1.2rem; border-left: 4px solid var(--accent-emerald);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.6rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="font-size: 0.85rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: var(--accent-emerald); padding: 0.2rem 0.6rem; border-radius: 4px;">
+                ${d.day_name || 'Day ' + d.day_number}
+              </span>
+              <strong style="font-size: 1rem; color: #fff;">${d.topic || weekObj.topics[0]}</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.8rem;">
+              <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan);">
+                ⏱️ ${d.total_minutes} Mins Workload
+              </span>
+              <button class="btn btn-emerald launch-day-hub-btn" data-day="${d.day_number}" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                Launch Day ${d.day_number} Tasks <i class="ph ph-arrow-right"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+            ${(d.tasks || []).map(t => {
+              let typeClass = 'STANDARD';
+              if (t.type === 'PRACTICE' || t.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
+              else if (t.type === 'PROBLEM_SOLVING' || t.type === 'PROJECT') typeClass = 'SKIPPED';
+
+              return `
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                  <div>
+                    <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.2rem;">
+                      <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${t.type}</span>
+                      <span class="tier-badge ${t.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${t.difficulty || 'INT'}</span>
+                      <span style="font-size: 0.78rem; font-weight: 600; color: #fff;">${t.title}</span>
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">
+                      ${t.practice_details || t.revision_details || 'Core daily learning task.'}
+                    </div>
+                  </div>
+                  <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber);">
+                    ${t.estimated_minutes} mins
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `).join('')}
+    `;
+
+    container.querySelectorAll('.launch-day-hub-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dayNum = parseInt(btn.dataset.day, 10);
+        renderDailyHub(dayNum);
+        switchView('dailyHub');
+      });
+    });
+
+    document.getElementById('back-to-weeks-btn').addEventListener('click', () => {
+      renderWeeklyView(roadmap, monthObj);
+    });
+  }
+
+  document.getElementById('nav-level-months').addEventListener('click', () => {
+    if (window.activePersonalizedRoadmap) {
+      renderMonthlyView(window.activePersonalizedRoadmap);
+    }
+  });
+
+  document.getElementById('nav-level-weeks').addEventListener('click', () => {
+    if (window.activePersonalizedRoadmap && currentSelectedMonthObj) {
+      renderWeeklyView(window.activePersonalizedRoadmap, currentSelectedMonthObj);
+    }
+  });
+
+  document.getElementById('regenerate-roadmap-btn').addEventListener('click', async () => {
+    const activeSession = supervisor.authAgent.getActiveSession();
+    const userId = activeSession ? activeSession.user_id : (window.currentDraftProfile ? window.currentDraftProfile.user_id : null);
+
+    if (!userId) {
+      alert('Please log in or register first to generate a personalized roadmap.');
+      return;
+    }
+
+    try {
+      const btn = document.getElementById('regenerate-roadmap-btn');
+      btn.disabled = true;
+      btn.innerHTML = `<i class="ph ph-spinner spinner"></i> Regenerating...`;
+
+      const res = await fetch('http://localhost:5000/api/roadmap/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+
+      const data = await res.json();
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ph ph-arrows-counter-clockwise"></i> Regenerate Roadmap`;
+
+      if (data.success && data.roadmap) {
+        await renderRoadmapView(data.roadmap);
+        alert('✅ Roadmap successfully regenerated and updated from your latest MongoDB Atlas profile and quiz performance!');
+      } else {
+        alert(data.error || 'Failed to regenerate roadmap.');
+      }
+    } catch (err) {
+      console.error('Roadmap regeneration error:', err);
+      alert('Error regenerating roadmap: ' + err.message);
+      const btn = document.getElementById('regenerate-roadmap-btn');
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ph ph-arrows-counter-clockwise"></i> Regenerate Roadmap`;
+    }
+  });
 
   document.getElementById('enter-daily-hub-btn').addEventListener('click', () => {
     const state = supervisor.progressTracker.getUserState();
@@ -779,27 +1219,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // INITIAL STATE BOOTSTRAP
-  renderDomainGrid();
-  const activeSession = supervisor.authAgent.getActiveSession();
-  const existingState = supervisor.progressTracker.getUserState();
-
-  if (activeSession) {
-    updateHeaderUserPill(activeSession);
-    window.currentDraftProfile = {
-      user_id: activeSession.user_id,
-      name: activeSession.name,
-      domainId: activeSession.chosen_domain,
-      chosen_domain: activeSession.chosen_domain,
-      timelineMonths: activeSession.timeline_months || 4,
-      dailyHours: activeSession.daily_hours || 2.0
-    };
-    renderDiagnosticQuiz(activeSession.chosen_domain);
-  }
-
-  if (existingState.isOnboarded && existingState.personalizedRoadmap) {
-    renderDailyHub(existingState.currentDayIndex + 1);
-    switchView('dailyHub');
-  } else {
+  if (!activeSession) {
     switchView('onboarding');
   }
 });

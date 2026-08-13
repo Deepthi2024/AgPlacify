@@ -1929,10 +1929,88 @@ class PlacifySupervisorAgent {
 
 
   /* ==========================================================
+     CHECK USER ONBOARDING STATE (MONGODB AUTHORITATIVE)
+     ========================================================== */
+
+  async checkUserOnboardingState(userId) {
+    if (!userId) {
+      return { action: 'QUIZ', route: 'diagnosticQuiz' };
+    }
+
+    try {
+      const userRes = await fetch(`http://localhost:5000/api/user/${userId}`);
+      const userData = await userRes.json();
+
+      if (!userData.success || !userData.profile) {
+        return { action: 'QUIZ', route: 'diagnosticQuiz' };
+      }
+
+      const profile = userData.profile;
+
+      // Priority 1: If quiz_completed is false, new/incomplete onboarding user -> Diagnostic Quiz
+      if (!profile.quiz_completed) {
+        return { action: 'QUIZ', route: 'diagnosticQuiz', profile };
+      }
+
+      // Priority 2: If quiz_completed is true, quiz must NEVER be shown again! Check existing roadmap.
+      let roadmap = null;
+      try {
+        const rmRes = await fetch(`http://localhost:5000/api/roadmap/user/${userId}`);
+        const rmData = await rmRes.json();
+        if (rmData.success && rmData.roadmap) {
+          roadmap = rmData.roadmap;
+        }
+      } catch (rmErr) {
+        console.warn('Could not fetch user roadmap:', rmErr);
+      }
+
+      // Priority 3: If roadmap missing for quiz_completed user, auto-generate roadmap
+      if (!roadmap) {
+        console.log(`⚡ Quiz completed for ${userId} but roadmap missing. Auto-generating...`);
+        const genRes = await fetch('http://localhost:5000/api/roadmap/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
+        });
+        const genData = await genRes.json();
+        if (genData.success && genData.roadmap) {
+          roadmap = genData.roadmap;
+        }
+      }
+
+      // Save state
+      const state = this.progressTracker.getUserState();
+      state.isOnboarded = true;
+      state.userProfile = profile;
+      if (roadmap) {
+        state.personalizedRoadmap = roadmap;
+      }
+      this.progressTracker.saveUserState(state);
+
+      // Target route priority: resume last_route (if not quiz or auth route), else 'roadmap'
+      const targetRoute = (profile.last_route && profile.last_route !== 'diagnosticQuiz' && profile.last_route !== 'login' && profile.last_route !== 'onboarding')
+        ? profile.last_route
+        : 'roadmap';
+
+      return {
+        action: 'RESUME',
+        route: targetRoute,
+        profile,
+        roadmap
+      };
+
+    } catch (err) {
+      console.error('Error checking user onboarding state:', err);
+      return { action: 'RESUME', route: 'roadmap' };
+    }
+  }
+
+
+  /* ==========================================================
      START LEARNING JOURNEY
      ========================================================== */
 
-  startLearningJourney(
+  async startLearningJourney(
     userProfile,
     diagnosticAnswers
   ) {
@@ -1997,59 +2075,73 @@ class PlacifySupervisorAgent {
 
 
     // ========================================================
-    // STEP 2: BASE ROADMAP
-    // ========================================================
-
-    this.logAgentAction(
-
-      'roadmap_generator',
-
-      'Generating Base Milestone Roadmap',
-
-      `Constructing milestones for ${userProfile.timelineMonths} months`
-
-    );
-
-
-    const baseRoadmap =
-      this.roadmapGenerator.generateBaseRoadmap(
-
-        userProfile.domainId,
-
-        userProfile.timelineMonths || userProfile.timelineWeeks,
-
-        userProfile.dailyHours
-
-      );
-
-
-    // ========================================================
-    // STEP 3: PERSONALIZATION
+    // STEP 2: GENERATE HIERARCHICAL PERSONALIZED ROADMAP FROM BACKEND
     // ========================================================
 
     this.logAgentAction(
 
       'personalized_roadmap',
 
-      'Customizing Roadmap Node Tree',
+      'Generating Hierarchical Personalized Roadmap',
 
-      `Injecting ${evaluation.gaps.length} remedial modules and evaluating ${evaluation.mastered.length} mastered topics`
+      `Requesting server pipeline for user ${userProfile.user_id} (${userProfile.timelineMonths}m, ${userProfile.dailyHours}h/day)`
 
     );
 
 
-    const finalRoadmap =
-      this.personalizedRoadmap.customizeRoadmap(
+    let finalRoadmap = null;
+    try {
+      const res = await fetch('http://localhost:5000/api/roadmap/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userProfile.user_id })
+      });
+      const data = await res.json();
+      if (data.success && data.roadmap) {
+        finalRoadmap = data.roadmap;
+        finalRoadmap.dailyTasks = [];
+        let dayCounter = 1;
+        (finalRoadmap.monthly_roadmap || []).forEach(m => {
+          (m.weeks || []).forEach(w => {
+            (w.days || []).forEach(d => {
+              (d.tasks || []).forEach(t => {
+                finalRoadmap.dailyTasks.push({
+                  dayNumber: dayCounter,
+                  milestoneId: `m${m.month_number}_w${w.week_number}_d${d.day_number}`,
+                  milestoneTitle: w.title,
+                  topic: d.topic || (w.topics && w.topics[0]) || 'General',
+                  conceptTitle: t.title,
+                  type: t.type,
+                  completed: false,
+                  score: null
+                });
+              });
+              dayCounter++;
+            });
+          });
+        });
+      }
+    } catch (err) {
+      console.warn('Backend API roadmap generation offline, generating fallback:', err);
+    }
 
-        baseRoadmap,
-
-        evaluation
-
-      );
+    if (!finalRoadmap) {
+      const baseRoadmap =
+        this.roadmapGenerator.generateBaseRoadmap(
+          userProfile.domainId,
+          userProfile.timelineMonths || userProfile.timelineWeeks,
+          userProfile.dailyHours
+        );
+      finalRoadmap =
+        this.personalizedRoadmap.customizeRoadmap(
+          baseRoadmap,
+          evaluation
+        );
+    }
 
 
     // ========================================================
-    // STEP 4: SAVE STATE
+    // STEP 3: SAVE STATE
     // ========================================================
 
     const state =
@@ -2083,12 +2175,14 @@ class PlacifySupervisorAgent {
 
       'Journey Initialized Successfully',
 
-      `Customized roadmap ready with ${finalRoadmap.dailyTasks.length} daily learning tasks.`
+      `Personalized roadmap ready with ${finalRoadmap.monthly_roadmap ? finalRoadmap.monthly_roadmap.length + ' months' : (finalRoadmap.milestones ? finalRoadmap.milestones.length + ' milestones' : 'roadmap tasks')}.`
 
     );
 
 
     return {
+
+      userProfile,
 
       evaluation,
 
