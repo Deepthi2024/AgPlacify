@@ -732,7 +732,57 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================================================================
   let currentSelectedMonthObj = null;
   let currentSelectedWeekObj = null;
+  let isStartingJourney = false;
 
+  // =========================================================================
+  // CALENDAR DATE & JOURNEY PROGRESSION HELPERS
+  // =========================================================================
+  function addDaysToDate(dateInput, daysToAdd) {
+    const d = new Date(dateInput);
+    d.setDate(d.getDate() + daysToAdd);
+    return d;
+  }
+
+  function formatDateLong(dateInput) {
+    const d = new Date(dateInput);
+    const options = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', options);
+  }
+
+  function formatDateShort(dateInput) {
+    const d = new Date(dateInput);
+    const options = { month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', options);
+  }
+
+  function formatDateRange(startDateInput, endDateInput) {
+    const s = new Date(startDateInput);
+    const e = new Date(endDateInput);
+    const sMonth = s.toLocaleDateString('en-US', { month: 'short' });
+    const eMonth = e.toLocaleDateString('en-US', { month: 'short' });
+    const sYear = s.getFullYear();
+    const eYear = e.getFullYear();
+
+    if (sYear === eYear && sMonth === eMonth) {
+      return `${sMonth} ${s.getDate()} – ${e.getDate()}, ${sYear}`;
+    } else if (sYear === eYear) {
+      return `${sMonth} ${s.getDate()} – ${eMonth} ${e.getDate()}, ${sYear}`;
+    } else {
+      return `${sMonth} ${s.getDate()}, ${sYear} – ${eMonth} ${e.getDate()}, ${eYear}`;
+    }
+  }
+
+  function isSameCalendarDay(date1, date2) {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  }
+
+  // =========================================================================
+  // VIEW 4: PERSONALIZED DYNAMIC ROADMAP VISUALIZATION (3-LEVEL HIERARCHY)
+  // =========================================================================
   async function renderRoadmapView(roadmapData) {
     let roadmap = roadmapData;
     const activeSession = supervisor.authAgent.getActiveSession();
@@ -768,13 +818,84 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.activePersonalizedRoadmap = roadmap;
 
+    // Check journey started status
+    const journeyStarted = roadmap.journey_started || (activeSession && activeSession.journey_started);
+    const journeyStartDate = roadmap.journey_start_date || (activeSession && activeSession.journey_start_date);
+
+    const bannerEl = document.getElementById('start-journey-banner');
+    if (bannerEl) {
+      if (!journeyStarted) {
+        bannerEl.style.display = 'flex';
+        const startBtn = document.getElementById('start-journey-btn');
+        if (startBtn) {
+          // Explicitly sync UI with initial isStartingJourney state (false on initial render)
+          if (isStartingJourney) {
+            startBtn.disabled = true;
+            startBtn.innerHTML = `<i class="ph ph-spinner spinner"></i> Starting...`;
+          } else {
+            startBtn.disabled = false;
+            startBtn.innerHTML = `<i class="ph ph-rocket-launch"></i> Start My Journey`;
+          }
+
+          startBtn.onclick = async () => {
+            if (isStartingJourney) return;
+            isStartingJourney = true;
+            startBtn.disabled = true;
+            startBtn.innerHTML = `<i class="ph ph-spinner spinner"></i> Starting...`;
+
+            try {
+              const clientSystemDate = new Date().toISOString();
+              const res = await fetch('http://localhost:5000/api/roadmap/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, start_date: clientSystemDate })
+              });
+              const data = await res.json();
+              if (data.success) {
+                roadmap.journey_started = true;
+                roadmap.journey_start_date = data.journey_start_date;
+                if (activeSession) {
+                  activeSession.journey_started = true;
+                  activeSession.journey_start_date = data.journey_start_date;
+                  supervisor.authAgent.setActiveSession(activeSession);
+                }
+                const state = supervisor.progressTracker.getUserState();
+                state.personalizedRoadmap = roadmap;
+                supervisor.progressTracker.saveUserState(state);
+                isStartingJourney = false;
+                renderRoadmapView(roadmap);
+              } else {
+                alert(data.error || 'Failed to start journey.');
+              }
+            } catch (err) {
+              console.error('Error starting journey:', err);
+              alert('Error starting journey: ' + err.message);
+            } finally {
+              isStartingJourney = false;
+              if (!roadmap.journey_started && startBtn) {
+                startBtn.disabled = false;
+                startBtn.innerHTML = `<i class="ph ph-rocket-launch"></i> Start My Journey`;
+              }
+            }
+          };
+        }
+      } else {
+        bannerEl.style.display = 'none';
+      }
+    }
+
     const domainTag = document.getElementById('roadmap-domain-tag');
     if (domainTag) domainTag.textContent = roadmap.domain_id || 'DOM';
     
     document.getElementById('rm-summary-domain').textContent = roadmap.domain || 'Full-Stack Web Development';
     document.getElementById('rm-summary-timeline').textContent = `${roadmap.timeline_months || 4} Months`;
     document.getElementById('rm-summary-hours').textContent = `${roadmap.daily_hours || 2.0} Hours / Day`;
-    document.getElementById('rm-summary-score').textContent = roadmap.quiz_score !== null && roadmap.quiz_score !== undefined ? `${roadmap.quiz_score}%` : 'Unassessed';
+    
+    let scoreDisplay = roadmap.quiz_score !== null && roadmap.quiz_score !== undefined ? `${roadmap.quiz_score}%` : 'Unassessed';
+    if (journeyStarted && journeyStartDate) {
+      scoreDisplay += ` • 🚀 Started: ${formatDateShort(journeyStartDate)}`;
+    }
+    document.getElementById('rm-summary-score').textContent = scoreDisplay;
 
     renderMonthlyView(roadmap);
   }
@@ -825,19 +946,30 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    const isStarted = (roadmap.journey_started || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_started)) && (roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_start_date));
+    const startDate = roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() ? supervisor.authAgent.getActiveSession().journey_start_date : null);
+
     container.innerHTML = monthlyList.map((m, idx) => {
       let priorityColor = 'var(--accent-cyan)';
       if (m.priority === 'HIGH') priorityColor = 'var(--accent-rose)';
       else if (m.priority === 'MEDIUM') priorityColor = '#f59e0b';
 
+      const monthStartDate = isStarted && startDate ? addDaysToDate(startDate, (m.month_number - 1) * 28) : null;
+      const monthEndDate = isStarted && startDate ? addDaysToDate(startDate, m.month_number * 28 - 1) : null;
+
       return `
         <div class="glass-card month-card" data-midx="${idx}" style="margin-bottom: 1.2rem; border-left: 4px solid ${priorityColor}; cursor: pointer; transition: transform 0.2s, border-color 0.2s;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem;">
             <div>
-              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem;">
+              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem; flex-wrap: wrap;">
                 <span class="node-tag ${m.priority === 'HIGH' ? 'REMEDIAL' : 'STANDARD'}">Month ${m.month_number}</span>
                 <span class="tier-badge ${m.difficulty || 'INTERMEDIATE'}">${m.difficulty || 'INTERMEDIATE'}</span>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">${m.weeks ? m.weeks.length : 4} Weeks</span>
+                ${isStarted && monthStartDate && monthEndDate ? `
+                  <span style="font-size: 0.78rem; font-weight: 700; color: var(--accent-cyan); background: rgba(6, 182, 212, 0.12); padding: 0.15rem 0.6rem; border-radius: 4px;">
+                    📅 ${formatDateRange(monthStartDate, monthEndDate)}
+                  </span>
+                ` : ''}
               </div>
               <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0.3rem 0;">${m.title}</h3>
               <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.6rem; line-height: 1.4;">${m.objective}</p>
@@ -892,6 +1024,9 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    const isStarted = (roadmap.journey_started || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_started)) && (roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_start_date));
+    const startDate = roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() ? supervisor.authAgent.getActiveSession().journey_start_date : null);
+
     container.innerHTML = `
       <div style="margin-bottom: 1rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); padding: 0.8rem 1rem; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
         <div>
@@ -902,32 +1037,42 @@ document.addEventListener('DOMContentLoaded', () => {
         </button>
       </div>
 
-      ${weeklyList.map((w, idx) => `
-        <div class="glass-card week-card" data-widx="${idx}" style="margin-bottom: 1rem; cursor: pointer; border-left: 4px solid var(--accent-violet);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem;">
-            <div>
-              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem;">
-                <span class="node-tag STANDARD">Week ${w.week_number}</span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">${w.days ? w.days.length : 7} Days</span>
-              </div>
-              <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0.2rem 0;">${w.title}</h4>
-              <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">${w.objective}</p>
-            </div>
-            <div style="text-align: right;">
-              <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);">${w.estimated_hours} Hours</div>
-              <button class="btn btn-secondary btn-view-days" data-widx="${idx}" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; margin-top: 0.4rem;">
-                View Day Tasks <i class="ph ph-caret-right"></i>
-              </button>
-            </div>
-          </div>
+      ${weeklyList.map((w, idx) => {
+        const weekStartDate = isStarted && startDate ? addDaysToDate(startDate, (w.week_number - 1) * 7) : null;
+        const weekEndDate = isStarted && startDate ? addDaysToDate(startDate, w.week_number * 7 - 1) : null;
 
-          <div style="margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px;">
-            <div><strong>Practice Focus:</strong> ${w.practice || 'Coding drills'}</div>
-            <div><strong>Revision Focus:</strong> ${w.revision || 'Concept recap'}</div>
-            <div><strong>Assessment:</strong> ${w.assessment || 'Weekly quiz'}</div>
+        return `
+          <div class="glass-card week-card" data-widx="${idx}" style="margin-bottom: 1rem; cursor: pointer; border-left: 4px solid var(--accent-violet);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem;">
+              <div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem; flex-wrap: wrap;">
+                  <span class="node-tag STANDARD">Week ${w.week_number}</span>
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">${w.days ? w.days.length : 7} Days</span>
+                  ${isStarted && weekStartDate && weekEndDate ? `
+                    <span style="font-size: 0.78rem; font-weight: 700; color: var(--accent-violet); background: rgba(139, 92, 246, 0.15); padding: 0.15rem 0.6rem; border-radius: 4px;">
+                      📅 ${formatDateRange(weekStartDate, weekEndDate)}
+                    </span>
+                  ` : ''}
+                </div>
+                <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0.2rem 0;">${w.title}</h4>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">${w.objective}</p>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);">${w.estimated_hours} Hours</div>
+                <button class="btn btn-secondary btn-view-days" data-widx="${idx}" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; margin-top: 0.4rem;">
+                  View Day Tasks <i class="ph ph-caret-right"></i>
+                </button>
+              </div>
+            </div>
+
+            <div style="margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px;">
+              <div><strong>Practice Focus:</strong> ${w.practice || 'Coding drills'}</div>
+              <div><strong>Revision Focus:</strong> ${w.revision || 'Concept recap'}</div>
+              <div><strong>Assessment:</strong> ${w.assessment || 'Weekly quiz'}</div>
+            </div>
           </div>
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     `;
 
     document.getElementById('back-to-months-btn').addEventListener('click', () => {
@@ -962,6 +1107,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('roadmap-nodes-container');
     const daysList = weekObj.days || [];
 
+    const isStarted = (roadmap.journey_started || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_started)) && (roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() && supervisor.authAgent.getActiveSession().journey_start_date));
+    const startDate = roadmap.journey_start_date || (supervisor.authAgent.getActiveSession() ? supervisor.authAgent.getActiveSession().journey_start_date : null);
+
     container.innerHTML = `
       <div style="margin-bottom: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.8rem 1rem; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
         <div>
@@ -972,52 +1120,65 @@ document.addEventListener('DOMContentLoaded', () => {
         </button>
       </div>
 
-      ${daysList.map(d => `
-        <div class="glass-card" style="margin-bottom: 1.2rem; border-left: 4px solid var(--accent-emerald);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.6rem;">
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
-              <span style="font-size: 0.85rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: var(--accent-emerald); padding: 0.2rem 0.6rem; border-radius: 4px;">
-                ${d.day_name || 'Day ' + d.day_number}
-              </span>
-              <strong style="font-size: 1rem; color: #fff;">${d.topic || weekObj.topics[0]}</strong>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.8rem;">
-              <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan);">
-                ⏱️ ${d.total_minutes} Mins Workload
-              </span>
-              <button class="btn btn-emerald launch-day-hub-btn" data-day="${d.day_number}" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
-                Launch Day ${d.day_number} Tasks <i class="ph ph-arrow-right"></i>
-              </button>
-            </div>
-          </div>
+      ${daysList.map(d => {
+        const overallDayOffset = (weekObj.week_number - 1) * 7 + (d.day_number - 1);
+        const dayDateObj = isStarted && startDate ? addDaysToDate(startDate, overallDayOffset) : null;
+        const dayFormatted = dayDateObj ? formatDateLong(dayDateObj) : (d.day_name || 'Day ' + d.day_number);
+        const isToday = dayDateObj ? isSameCalendarDay(dayDateObj, new Date()) : false;
 
-          <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-            ${(d.tasks || []).map(t => {
-              let typeClass = 'STANDARD';
-              if (t.type === 'PRACTICE' || t.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
-              else if (t.type === 'PROBLEM_SOLVING' || t.type === 'PROJECT') typeClass = 'SKIPPED';
+        return `
+          <div class="glass-card" style="margin-bottom: 1.2rem; border-left: 4px solid ${isToday ? 'var(--accent-cyan)' : 'var(--accent-emerald)'}; ${isToday ? 'box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <span style="font-size: 0.85rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: var(--accent-emerald); padding: 0.2rem 0.6rem; border-radius: 4px;">
+                  Day ${d.day_number}
+                </span>
+                <strong style="font-size: 1rem; color: #fff;">${dayFormatted}</strong>
+                ${isToday ? `
+                  <span style="font-size: 0.72rem; font-weight: 800; background: var(--accent-cyan); color: #000; padding: 0.15rem 0.5rem; border-radius: 4px;">
+                    TODAY
+                  </span>
+                ` : ''}
+                <span style="font-size: 0.85rem; color: var(--text-muted);">(${d.topic || weekObj.topics[0]})</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.8rem;">
+                <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan);">
+                  ⏱️ ${d.total_minutes} Mins Workload
+                </span>
+                <button class="btn btn-emerald launch-day-hub-btn" data-day="${d.day_number}" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                  Launch Day ${d.day_number} Tasks <i class="ph ph-arrow-right"></i>
+                </button>
+              </div>
+            </div>
 
-              return `
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-                  <div>
-                    <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.2rem;">
-                      <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${t.type}</span>
-                      <span class="tier-badge ${t.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${t.difficulty || 'INT'}</span>
-                      <span style="font-size: 0.78rem; font-weight: 600; color: #fff;">${t.title}</span>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+              ${(d.tasks || []).map(t => {
+                let typeClass = 'STANDARD';
+                if (t.type === 'PRACTICE' || t.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
+                else if (t.type === 'PROBLEM_SOLVING' || t.type === 'PROJECT') typeClass = 'SKIPPED';
+
+                return `
+                  <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <div>
+                      <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.2rem;">
+                        <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${t.type}</span>
+                        <span class="tier-badge ${t.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${t.difficulty || 'INT'}</span>
+                        <span style="font-size: 0.78rem; font-weight: 600; color: #fff;">${t.title}</span>
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-muted);">
+                        ${t.practice_details || t.revision_details || 'Core daily learning task.'}
+                      </div>
                     </div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted);">
-                      ${t.practice_details || t.revision_details || 'Core daily learning task.'}
+                    <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber);">
+                      ${t.estimated_minutes} mins
                     </div>
                   </div>
-                  <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber);">
-                    ${t.estimated_minutes} mins
-                  </div>
-                </div>
-              `;
-            }).join('')}
+                `;
+              }).join('')}
+            </div>
           </div>
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     `;
 
     container.querySelectorAll('.launch-day-hub-btn').forEach(btn => {

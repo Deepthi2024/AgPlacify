@@ -99,6 +99,16 @@ const userSchema = new mongoose.Schema(
       default: 'NOT_STARTED'
     },
 
+    journey_started: {
+      type: Boolean,
+      default: false
+    },
+
+    journey_start_date: {
+      type: Date,
+      default: null
+    },
+
     createdAt: {
       type: Date,
       default: Date.now
@@ -280,6 +290,14 @@ const roadmapSchema = new mongoose.Schema(
       type: Number,
       default: null
     },
+    journey_started: {
+      type: Boolean,
+      default: false
+    },
+    journey_start_date: {
+      type: Date,
+      default: null
+    },
     topic_performances: [
       {
         topic: String,
@@ -433,28 +451,34 @@ function generatePersonalizedRoadmapEngine({ user_id, domain, timeline_months, d
   const topicMap = {};
 
   if (quizEvaluation) {
-    overallScore = quizEvaluation.score_pct !== undefined ? quizEvaluation.score_pct : null;
+    overallScore = quizEvaluation.score_pct !== undefined 
+      ? quizEvaluation.score_pct 
+      : (quizEvaluation.scorePct !== undefined ? quizEvaluation.scorePct : null);
 
-    const topicEvals = quizEvaluation.topic_evaluations || [];
+    const topicEvals = quizEvaluation.topic_evaluations || quizEvaluation.topicEvaluations || [];
     topicEvals.forEach(te => {
-      const acc = te.score_pct !== undefined ? te.score_pct : (te.accuracy || 0);
-      let status = 'INTERMEDIATE';
-      if (acc < 40) status = 'WEAK';
+      const acc = te.score_pct !== undefined ? te.score_pct : (te.accuracy !== undefined ? te.accuracy : (te.score !== undefined ? te.score : 0));
+      let status = te.proficiency_level || te.proficiencyLevel || 'INTERMEDIATE';
+      if (acc < 50) status = 'WEAK';
       else if (acc >= 70) status = 'STRONG';
-      topicMap[te.topic] = { score: acc, status };
+      if (te.topic) {
+        topicMap[te.topic] = { score: acc, status };
+      }
     });
 
-    (quizEvaluation.knowledge_gaps || []).forEach(gap => {
-      if (!topicMap[gap.topic]) {
-        const acc = gap.accuracy_pct !== undefined ? gap.accuracy_pct : 35;
+    (quizEvaluation.knowledge_gaps || quizEvaluation.knowledgeGaps || []).forEach(gap => {
+      if (gap.topic) {
+        const acc = gap.accuracy_pct !== undefined ? gap.accuracy_pct : (gap.accuracy !== undefined ? gap.accuracy : 35);
         topicMap[gap.topic] = { score: acc, status: 'WEAK' };
       }
     });
 
-    (quizEvaluation.mastered_topics || []).forEach(m => {
-      if (!topicMap[m.topic]) {
-        const acc = m.accuracy_pct !== undefined ? m.accuracy_pct : 85;
-        topicMap[m.topic] = { score: acc, status: 'STRONG' };
+    (quizEvaluation.mastered_topics || quizEvaluation.masteredTopics || []).forEach(m => {
+      if (m.topic) {
+        const acc = m.accuracy_pct !== undefined ? m.accuracy_pct : (m.accuracy !== undefined ? m.accuracy : 85);
+        if (!topicMap[m.topic] || topicMap[m.topic].status !== 'WEAK') {
+          topicMap[m.topic] = { score: acc, status: 'STRONG' };
+        }
       }
     });
   }
@@ -462,9 +486,15 @@ function generatePersonalizedRoadmapEngine({ user_id, domain, timeline_months, d
   const topicPerformances = curriculum.topics.map(t => {
     let perf = topicMap[t.name];
     if (!perf) {
+      const matchedKey = Object.keys(topicMap).find(k => k.toLowerCase().trim() === t.name.toLowerCase().trim());
+      if (matchedKey) {
+        perf = topicMap[matchedKey];
+      }
+    }
+    if (!perf) {
       if (overallScore !== null) {
         let status = 'INTERMEDIATE';
-        if (overallScore < 40) status = 'WEAK';
+        if (overallScore < 50) status = 'WEAK';
         else if (overallScore >= 70) status = 'STRONG';
         perf = { score: overallScore, status };
       } else {
@@ -1245,7 +1275,13 @@ const server = http.createServer(async (req, res) => {
             mongoUser.last_route,
 
           roadmap_status:
-            mongoUser.roadmap_status
+            mongoUser.roadmap_status,
+
+          journey_started:
+            mongoUser.journey_started || false,
+
+          journey_start_date:
+            mongoUser.journey_start_date || null
 
         }
 
@@ -1465,7 +1501,13 @@ const server = http.createServer(async (req, res) => {
             user.last_route || 'roadmap',
 
           roadmap_status:
-            user.roadmap_status || 'NOT_STARTED'
+            user.roadmap_status || 'NOT_STARTED',
+
+          journey_started:
+            user.journey_started || false,
+
+          journey_start_date:
+            user.journey_start_date || null
 
         }
 
@@ -1723,7 +1765,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = await readRequestBody(req);
-      const { user_id } = payload;
+      const { user_id, quizEvaluation } = payload;
 
       if (!user_id) {
         return sendJSON(res, 400, {
@@ -1739,8 +1781,19 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // Fetch latest completed quiz evaluation from MongoDB Atlas (`quiz_evaluations` collection)
-      const latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+      // Fetch latest completed quiz evaluation from MongoDB Atlas (`quiz_evaluations` collection) or payload
+      let latestQuizEval = quizEvaluation || null;
+      if (!latestQuizEval) {
+        latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+      }
+
+      console.log(`[ROADMAP DEBUG] Generating roadmap using evaluation for user: ${user.user_id}`);
+      console.log(`[ROADMAP DEBUG] user_id: ${user.user_id}`);
+      console.log(`[ROADMAP DEBUG] quiz_score: ${latestQuizEval ? (latestQuizEval.score_pct !== undefined ? latestQuizEval.score_pct : latestQuizEval.scorePct) : 'NULL (No Quiz Eval Found)'}`);
+      console.log(`[ROADMAP DEBUG] skill_level: ${latestQuizEval ? (latestQuizEval.skill_level || latestQuizEval.skillTier || 'UNASSESSED') : 'UNASSESSED'}`);
+      console.log(`[ROADMAP DEBUG] topic_evaluations: ${latestQuizEval && (latestQuizEval.topic_evaluations || latestQuizEval.topicEvaluations) ? (latestQuizEval.topic_evaluations || latestQuizEval.topicEvaluations).length : 0}`);
+      console.log(`[ROADMAP DEBUG] knowledge_gaps: ${latestQuizEval && (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps) ? (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps).length : 0}`);
+      console.log(`[ROADMAP DEBUG] mastered_topics: ${latestQuizEval && (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics) ? (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics).length : 0}`);
 
       // Generate 3-level hierarchical personalized roadmap
       const roadmapData = generatePersonalizedRoadmapEngine({
@@ -1776,6 +1829,75 @@ const server = http.createServer(async (req, res) => {
       console.error('❌ Roadmap generation error:', err);
       return sendJSON(res, 500, {
         error: 'Server roadmap generation error: ' + err.message
+      });
+    }
+  }
+
+
+  // ==========================================================
+  // 11d. START JOURNEY ENDPOINT
+  // POST /api/roadmap/start
+  // ==========================================================
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/roadmap/start'
+  ) {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        return sendJSON(res, 503, {
+          error: 'MongoDB Atlas is not connected. Please try again.'
+        });
+      }
+
+      const payload = await readRequestBody(req);
+      const { user_id, start_date } = payload;
+
+      if (!user_id) {
+        return sendJSON(res, 400, {
+          error: 'Missing required parameter: user_id.'
+        });
+      }
+
+      const user = await User.findOne({ user_id });
+      if (!user) {
+        return sendJSON(res, 404, {
+          error: `User profile for user_id ${user_id} not found in database.`
+        });
+      }
+
+      let startDateObj = user.journey_start_date;
+      if (!user.journey_started || !startDateObj) {
+        startDateObj = start_date ? new Date(start_date) : new Date();
+        user.journey_started = true;
+        user.journey_start_date = startDateObj;
+        await user.save();
+      }
+
+      const roadmapDoc = await Roadmap.findOneAndUpdate(
+        { user_id: user.user_id },
+        {
+          journey_started: true,
+          journey_start_date: startDateObj,
+          updated_at: new Date()
+        },
+        { new: true }
+      );
+
+      console.log(`🚀 Journey started for user ${user_id} on ${startDateObj.toISOString()}`);
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: 'Journey started successfully.',
+        journey_started: true,
+        journey_start_date: startDateObj,
+        roadmap: roadmapDoc
+      });
+
+    } catch (err) {
+      console.error('❌ Error starting journey:', err);
+      return sendJSON(res, 500, {
+        error: 'Server error starting journey: ' + err.message
       });
     }
   }

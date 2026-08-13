@@ -424,7 +424,7 @@ class AuthAgent {
 
 class QuizEvaluatorAgent {
 
-  evaluateDiagnostic(
+  async evaluateDiagnostic(
     domainIdOrObject,
     rawAnswers = {},
     userId = null
@@ -728,15 +728,23 @@ class QuizEvaluatorAgent {
       domain: domainName,
       domainId: domainId,
       scorePct,
+      score_pct: scorePct,
       correctCount,
+      correct_count: correctCount,
       totalQuestions,
+      total_questions: totalQuestions,
       unansweredCount: unansweredTotal,
       skillTier,
+      skill_tier: skillTier,
       skill_level: skillTier,
       levelDescription,
+      level_description: levelDescription,
       masteredTopics,
+      mastered_topics: masteredTopics,
       knowledgeGaps,
+      knowledge_gaps: knowledgeGaps,
       topicEvaluations,
+      topic_evaluations: topicEvaluations,
       weakTopics,
       intermediateTopics,
       strongTopics,
@@ -746,26 +754,25 @@ class QuizEvaluatorAgent {
       evaluatedAt: new Date().toISOString()
     };
 
-    // Async save to MongoDB Atlas backend
-    fetch('http://localhost:5000/api/quiz/evaluate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        user_id,
-        domain: domainName,
-        answers: formattedQuestions,
-        topic_evaluations: topicEvaluations
-      })
-    })
-      .then(res => res.json())
-      .then(data => {
-        console.log('✅ Quiz Evaluation persisted to MongoDB Atlas collection quiz_evaluations:', data);
-      })
-      .catch(err => {
-        console.warn('⚠️ Could not persist quiz evaluation to backend server:', err.message);
+    // Async save to MongoDB Atlas backend (awaited)
+    try {
+      const res = await fetch('http://localhost:5000/api/quiz/evaluate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id,
+          domain: domainName,
+          answers: formattedQuestions,
+          topic_evaluations: topicEvaluations
+        })
       });
+      const data = await res.json();
+      console.log('✅ Quiz Evaluation persisted to MongoDB Atlas collection quiz_evaluations:', data);
+    } catch (err) {
+      console.warn('⚠️ Could not persist quiz evaluation to backend server:', err.message);
+    }
 
     return evaluationResult;
   }
@@ -1063,6 +1070,8 @@ class PersonalizedRoadmapAgent {
     return {
 
       ...baseRoadmap,
+
+      quiz_score: evaluationResult.scorePct !== undefined ? evaluationResult.scorePct : evaluationResult.score_pct,
 
       skillTier:
         evaluationResult.skillTier,
@@ -2052,7 +2061,7 @@ class PlacifySupervisorAgent {
 
 
     const evaluation =
-      this.quizEvaluator.evaluateDiagnostic(
+      await this.quizEvaluator.evaluateDiagnostic(
 
         domainToEval,
 
@@ -2094,7 +2103,10 @@ class PlacifySupervisorAgent {
       const res = await fetch('http://localhost:5000/api/roadmap/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userProfile.user_id })
+        body: JSON.stringify({
+          user_id: userProfile.user_id,
+          quizEvaluation: evaluation
+        })
       });
       const data = await res.json();
       if (data.success && data.roadmap) {
