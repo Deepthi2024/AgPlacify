@@ -42,7 +42,7 @@ class AuthAgent {
     email,
     password,
     chosen_domain,
-    timeline_weeks,
+    timeline_months,
     daily_hours
   }) {
 
@@ -107,8 +107,8 @@ class AuthAgent {
     const domain =
       chosen_domain || 'fullstack';
 
-    const weeks =
-      parseInt(timeline_weeks, 10) || 4;
+    const months =
+      parseInt(timeline_months, 10) || 4;
 
     const hours =
       parseFloat(daily_hours) || 2.0;
@@ -144,7 +144,7 @@ class AuthAgent {
 
             chosen_domain: domain,
 
-            timeline_weeks: weeks,
+            timeline_months: months,
 
             daily_hours: hours
 
@@ -425,145 +425,349 @@ class AuthAgent {
 class QuizEvaluatorAgent {
 
   evaluateDiagnostic(
-    domainId,
-    answers
+    domainIdOrObject,
+    rawAnswers = {},
+    userId = null
   ) {
+    let user_id = userId;
+    let answersInput = rawAnswers;
+    let explicitDomain = null;
 
-    const domain =
-      window.PLACIFY_DATA.domains.find(
-        d => d.id === domainId
-      );
-
-
-    if (!domain) {
-
-      throw new Error(
-        'Domain not found'
-      );
+    // Check if called with a structured input payload object
+    if (typeof domainIdOrObject === 'object' && domainIdOrObject !== null) {
+      user_id = domainIdOrObject.user_id || user_id;
+      explicitDomain = domainIdOrObject.domainId || domainIdOrObject.chosen_domain || domainIdOrObject.domain;
+      answersInput = domainIdOrObject.answers || rawAnswers;
+    } else {
+      explicitDomain = domainIdOrObject;
     }
 
+    if (!user_id && window.currentDraftProfile) {
+      user_id = window.currentDraftProfile.user_id || window.currentDraftProfile.email;
+    }
+    if (!user_id && window.placifySupervisor && window.placifySupervisor.authAgent) {
+      const activeSession = window.placifySupervisor.authAgent.getActiveSession();
+      if (activeSession) {
+        user_id = activeSession.user_id;
+      }
+    }
+    if (!user_id) {
+      user_id = 'usr_guest_' + Date.now();
+    }
 
-    const totalQuestions =
-      domain.diagnostics.length;
+    // Resolve domain object robustly using findDomain
+    let domainCandidate = explicitDomain;
+    if (!domainCandidate && window.currentDraftProfile) {
+      domainCandidate = window.currentDraftProfile.domainId || window.currentDraftProfile.chosen_domain;
+    }
+    if (!domainCandidate && window.placifySupervisor && window.placifySupervisor.authAgent) {
+      const activeSession = window.placifySupervisor.authAgent.getActiveSession();
+      if (activeSession) {
+        domainCandidate = activeSession.chosen_domain;
+      }
+    }
 
+    const domainObj = window.PLACIFY_DATA.findDomain(domainCandidate);
+    const domainName = domainObj.name;
+    const domainId = domainObj.id;
 
+    // Build structured answers array with required fields
+    let formattedQuestions = [];
+
+    if (Array.isArray(answersInput)) {
+      formattedQuestions = answersInput;
+    } else if (domainObj && domainObj.diagnostics) {
+      formattedQuestions = domainObj.diagnostics.map((q, idx) => {
+        let userSelection = answersInput[q.id];
+        if (userSelection === undefined) {
+          userSelection = answersInput[idx] !== undefined ? answersInput[idx] : answersInput[`q_${idx + 1}`];
+        }
+
+        let userAnswerText = 'Unanswered';
+        let isCorrect = false;
+        const qType = q.type || 'MCQ';
+
+        // 1. MSQ (Multiple Select Question)
+        if (qType === 'MSQ') {
+          let userArr = [];
+          if (Array.isArray(userSelection)) {
+            userArr = userSelection.map(Number).filter(n => !isNaN(n));
+          } else if (typeof userSelection === 'string' && userSelection.includes(',')) {
+            userArr = userSelection.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n));
+          } else if (userSelection !== undefined && userSelection !== null && userSelection !== -1 && userSelection !== '-1') {
+            userArr = [Number(userSelection)];
+          }
+
+          let correctArr = Array.isArray(q.correct) ? q.correct.map(Number) : [Number(q.correct)];
+
+          if (userArr.length > 0) {
+            userAnswerText = userArr.map(i => q.options[i] || `Option ${i + 1}`).join('; ');
+            const normUser = [...userArr].sort((a, b) => a - b).join(',');
+            const normCorr = [...correctArr].sort((a, b) => a - b).join(',');
+            isCorrect = normUser === normCorr;
+          } else {
+            userAnswerText = 'Unanswered';
+            isCorrect = false;
+          }
+        }
+        // 2. NUMERICAL Question
+        else if (qType === 'NUMERICAL') {
+          if (userSelection !== undefined && userSelection !== null && String(userSelection).trim() !== '') {
+            userAnswerText = String(userSelection).trim();
+            const userNum = parseFloat(userAnswerText);
+            const correctNum = parseFloat(q.correct);
+            if (!isNaN(userNum) && !isNaN(correctNum)) {
+              isCorrect = Math.abs(userNum - correctNum) < 0.01;
+            } else {
+              isCorrect = String(userAnswerText).toLowerCase() === String(q.correct).toLowerCase();
+            }
+          } else {
+            userAnswerText = 'Unanswered';
+            isCorrect = false;
+          }
+        }
+        // 3. MCQ / CODE_OUTPUT / ASSERTION / SCENARIO / CONCEPTUAL / APPLICATION
+        else {
+          if (userSelection !== undefined && userSelection !== null && userSelection !== -1 && userSelection !== '-1') {
+            const numIdx = Number(userSelection);
+            if (!isNaN(numIdx) && numIdx >= 0 && q.options && q.options[numIdx]) {
+              userAnswerText = q.options[numIdx];
+              isCorrect = (numIdx === Number(q.correct));
+            } else if (typeof userSelection === 'string' && userSelection.trim()) {
+              userAnswerText = userSelection.trim();
+              const expectedText = (q.options && q.options[q.correct]) ? q.options[q.correct] : String(q.correct);
+              isCorrect = (userAnswerText.toLowerCase() === String(expectedText).toLowerCase());
+            }
+          } else {
+            userAnswerText = 'Unanswered';
+            isCorrect = false;
+          }
+        }
+
+        const correctText = Array.isArray(q.correct)
+          ? q.correct.map(i => q.options[i]).join('; ')
+          : ((q.options && q.options[q.correct]) ? q.options[q.correct] : String(q.correct));
+
+        return {
+          id: q.id,
+          question: q.question,
+          codeSnippet: q.codeSnippet || null,
+          options: q.options || [],
+          type: qType,
+          topic: q.topic || 'General Knowledge',
+          subtopic: q.subtopic || 'Core Concepts',
+          difficulty: q.difficulty || 'INTERMEDIATE',
+          user_answer: userAnswerText,
+          correct_answer: correctText,
+          is_correct: isCorrect,
+          explanation: q.explanation || ''
+        };
+      });
+    }
+
+    // Calculate detailed topic-wise accuracy & difficulty breakdown
     let correctCount = 0;
-
+    let unansweredTotal = 0;
+    const totalQuestions = formattedQuestions.length;
+    const topicStats = {};
     const gaps = [];
-
     const mastered = [];
 
+    formattedQuestions.forEach(q => {
+      if (q.user_answer === 'Unanswered') unansweredTotal++;
+      if (q.is_correct) {
+        correctCount++;
+        mastered.push({
+          topic: q.topic,
+          question: q.question
+        });
+      } else {
+        gaps.push({
+          topic: q.topic,
+          question: q.question,
+          userAnswer: q.user_answer,
+          correctAnswer: q.correct_answer,
+          difficulty: q.difficulty,
+          explanation: q.explanation
+        });
+      }
 
-    domain.diagnostics.forEach(
-      q => {
+      const topic = q.topic || 'General Knowledge';
+      if (!topicStats[topic]) {
+        topicStats[topic] = {
+          total: 0,
+          correct: 0,
+          incorrect: 0,
+          unanswered: 0,
+          beginnerTotal: 0,
+          beginnerCorrect: 0,
+          intermediateTotal: 0,
+          intermediateCorrect: 0,
+          advancedTotal: 0,
+          advancedCorrect: 0,
+          weakConcepts: new Set()
+        };
+      }
 
-        const userAnswer =
-          answers[q.id];
+      const stats = topicStats[topic];
+      stats.total++;
+      if (q.user_answer === 'Unanswered') stats.unanswered++;
 
+      if (q.difficulty === 'BEGINNER') {
+        stats.beginnerTotal++;
+        if (q.is_correct) stats.beginnerCorrect++;
+      } else if (q.difficulty === 'ADVANCED') {
+        stats.advancedTotal++;
+        if (q.is_correct) stats.advancedCorrect++;
+      } else {
+        stats.intermediateTotal++;
+        if (q.is_correct) stats.intermediateCorrect++;
+      }
 
-        // ---------------------------
-        // Correct Answer
-        // ---------------------------
+      if (q.is_correct) {
+        stats.correct++;
+      } else {
+        stats.incorrect++;
+        if (q.subtopic) stats.weakConcepts.add(q.subtopic);
+      }
+    });
 
-        if (
-          userAnswer === q.correct
-        ) {
+    const scorePct = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
 
-          correctCount++;
+    const topicEvaluations = [];
+    const weakTopics = [];
+    const intermediateTopics = [];
+    const strongTopics = [];
+    const masteredTopics = [];
+    const knowledgeGaps = [];
 
+    Object.keys(topicStats).forEach(topic => {
+      const stats = topicStats[topic];
+      const accuracyPct = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
 
-          mastered.push({
+      const begAcc = stats.beginnerTotal > 0 ? Math.round((stats.beginnerCorrect / stats.beginnerTotal) * 100) : 100;
+      const intAcc = stats.intermediateTotal > 0 ? Math.round((stats.intermediateCorrect / stats.intermediateTotal) * 100) : 100;
+      const advAcc = stats.advancedTotal > 0 ? Math.round((stats.advancedCorrect / stats.advancedTotal) * 100) : 0;
 
-            topic: q.topic,
+      // Strict NPTEL Difficulty-Weighted Proficiency Logic
+      let proficiencyLevel = 'INTERMEDIATE';
+      let reason = '';
 
-            prerequisiteFor:
-              q.prerequisiteFor
-
-          });
-
-
+      if (accuracyPct >= 80 && (stats.intermediateTotal === 0 || intAcc >= 50) && (stats.advancedTotal === 0 || advAcc > 0)) {
+        proficiencyLevel = 'STRONG';
+        reason = `High overall accuracy (${accuracyPct}%) with strong intermediate/advanced problem solving.`;
+      } else if (accuracyPct < 50 || (stats.beginnerTotal > 0 && begAcc < 50)) {
+        proficiencyLevel = 'WEAK';
+        if (stats.beginnerTotal > 0 && begAcc < 50) {
+          reason = `Failed foundational beginner questions (${begAcc}% accuracy). Fundamental concepts missing.`;
+        } else {
+          reason = `Low topic accuracy (${accuracyPct}%). Needs targeted remedial practice.`;
         }
-
-        // ---------------------------
-        // Incorrect Answer
-        // ---------------------------
-
-        else {
-
-          gaps.push({
-
-            topic: q.topic,
-
-            question: q.question,
-
-            prerequisiteFor:
-              q.prerequisiteFor,
-
-            userAnswer:
-              userAnswer >= 0
-                ? q.options[userAnswer]
-                : 'Unanswered',
-
-            correctAnswer:
-              q.options[q.correct]
-
-          });
+      } else {
+        proficiencyLevel = 'INTERMEDIATE';
+        if (advAcc === 0 && stats.advancedTotal > 0) {
+          reason = `Solid baseline (${accuracyPct}%), but struggled with advanced application/code tracing questions.`;
+        } else {
+          reason = `Practical understanding solid (${accuracyPct}% accuracy). Ready for applied project work.`;
         }
       }
-    );
 
+      const evalItem = {
+        topic,
+        totalQuestions: stats.total,
+        correctAnswers: stats.correct,
+        incorrectAnswers: stats.incorrect,
+        unanswered: stats.unanswered,
+        accuracy: accuracyPct,
+        score_pct: accuracyPct,
+        beginnerAccuracy: begAcc,
+        intermediateAccuracy: intAcc,
+        advancedAccuracy: advAcc,
+        proficiencyLevel,
+        proficiency_level: proficiencyLevel,
+        reason,
+        weakConcepts: Array.from(stats.weakConcepts),
+        recommendedFocus: Array.from(stats.weakConcepts).join(', ') || `${topic} Foundations`
+      };
 
-    // -------------------------------
-    // Calculate Score
-    // -------------------------------
+      topicEvaluations.push(evalItem);
 
-    const scorePct =
-      totalQuestions > 0
-        ? Math.round(
-          (correctCount /
-            totalQuestions) *
-          100
-        )
-        : 0;
+      if (proficiencyLevel === 'STRONG') {
+        strongTopics.push(evalItem);
+        masteredTopics.push({ topic, accuracy_pct: accuracyPct });
+      } else if (proficiencyLevel === 'INTERMEDIATE') {
+        intermediateTopics.push(evalItem);
+      } else {
+        weakTopics.push(evalItem);
+        knowledgeGaps.push({
+          topic,
+          accuracy_pct: accuracyPct,
+          reason,
+          weakConcepts: Array.from(stats.weakConcepts)
+        });
+      }
+    });
 
-
-    // -------------------------------
-    // Determine Skill Tier
-    // -------------------------------
-
+    // Determine Overall Skill Tier (Score + Topic Distribution)
     let skillTier = 'BEGINNER';
+    let levelDescription = '';
 
-
-    if (scorePct >= 80) {
-
+    if (scorePct >= 80 && weakTopics.length <= 1) {
       skillTier = 'ADVANCED';
-
-    } else if (scorePct >= 50) {
-
+      levelDescription = 'High technical proficiency across domain topics. Ready for advanced system design and production trade-offs.';
+    } else if (scorePct >= 50 && weakTopics.length <= 3) {
       skillTier = 'INTERMEDIATE';
+      levelDescription = 'Solid practical foundation. Identified specific weak concepts for targeted remediation.';
+    } else {
+      skillTier = 'BEGINNER';
+      levelDescription = 'Foundational gaps identified across core topics. Focus on fundamental conceptual modules.';
     }
 
-
-    return {
-
-      domainId,
-
+    const evaluationResult = {
+      user_id,
+      domain: domainName,
+      domainId: domainId,
       scorePct,
-
       correctCount,
-
       totalQuestions,
-
+      unansweredCount: unansweredTotal,
       skillTier,
-
+      skill_level: skillTier,
+      levelDescription,
+      masteredTopics,
+      knowledgeGaps,
+      topicEvaluations,
+      weakTopics,
+      intermediateTopics,
+      strongTopics,
       gaps,
-
       mastered,
-
-      evaluatedAt:
-        new Date().toISOString()
-
+      answers: formattedQuestions,
+      evaluatedAt: new Date().toISOString()
     };
+
+    // Async save to MongoDB Atlas backend
+    fetch('http://localhost:5000/api/quiz/evaluate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        user_id,
+        domain: domainName,
+        answers: formattedQuestions,
+        topic_evaluations: topicEvaluations
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        console.log('✅ Quiz Evaluation persisted to MongoDB Atlas collection quiz_evaluations:', data);
+      })
+      .catch(err => {
+        console.warn('⚠️ Could not persist quiz evaluation to backend server:', err.message);
+      });
+
+    return evaluationResult;
   }
 }
 
@@ -576,14 +780,12 @@ class RoadmapGeneratorAgent {
 
   generateBaseRoadmap(
     domainId,
-    timelineWeeks,
+    timelineMonths,
     dailyHours
   ) {
 
     const domain =
-      window.PLACIFY_DATA.domains.find(
-        d => d.id === domainId
-      );
+      window.PLACIFY_DATA.findDomain(domainId);
 
 
     if (!domain) {
@@ -594,12 +796,16 @@ class RoadmapGeneratorAgent {
     }
 
 
+    const months = timelineMonths || 4;
+    const internalWeeks = months * 4;
+
+
     // -------------------------------
     // Calculate Total Learning Hours
     // -------------------------------
 
     const totalHours =
-      timelineWeeks *
+      internalWeeks *
       7 *
       dailyHours;
 
@@ -618,7 +824,7 @@ class RoadmapGeneratorAgent {
               Math.round(
                 ((index + 1) /
                   domain.milestones.length) *
-                timelineWeeks
+                internalWeeks
               )
             );
 
@@ -664,7 +870,7 @@ class RoadmapGeneratorAgent {
       domainName:
         domain.name,
 
-      timelineWeeks,
+      timelineMonths: months,
 
       dailyHours,
 
@@ -1745,7 +1951,7 @@ class PlacifySupervisorAgent {
 
       'Initiating Onboarding Workflow',
 
-      `Received user domain: ${userProfile.domainId}, timeline: ${userProfile.timelineWeeks}w, hours: ${userProfile.dailyHours}h/day`
+      `Received user domain: ${userProfile.domainId}, timeline: ${userProfile.timelineMonths}m, hours: ${userProfile.dailyHours}h/day`
 
     );
 
@@ -1754,13 +1960,15 @@ class PlacifySupervisorAgent {
     // STEP 1: QUIZ EVALUATION
     // ========================================================
 
+    const domainToEval = userProfile.domainId || userProfile.chosen_domain;
+
     this.logAgentAction(
 
       'quiz_evaluator',
 
       'Evaluating Diagnostic Answers',
 
-      `Processing diagnostic questions for domain: ${userProfile.domainId}`
+      `Processing diagnostic questions for domain: ${domainToEval}`
 
     );
 
@@ -1768,9 +1976,11 @@ class PlacifySupervisorAgent {
     const evaluation =
       this.quizEvaluator.evaluateDiagnostic(
 
-        userProfile.domainId,
+        domainToEval,
 
-        diagnosticAnswers
+        diagnosticAnswers,
+
+        userProfile.user_id
 
       );
 
@@ -1796,7 +2006,7 @@ class PlacifySupervisorAgent {
 
       'Generating Base Milestone Roadmap',
 
-      `Constructing milestones for ${userProfile.timelineWeeks} weeks`
+      `Constructing milestones for ${userProfile.timelineMonths} months`
 
     );
 
@@ -1806,7 +2016,7 @@ class PlacifySupervisorAgent {
 
         userProfile.domainId,
 
-        userProfile.timelineWeeks,
+        userProfile.timelineMonths || userProfile.timelineWeeks,
 
         userProfile.dailyHours
 

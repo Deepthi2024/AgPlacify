@@ -68,7 +68,7 @@ const userSchema = new mongoose.Schema(
       default: 'fullstack'
     },
 
-    timeline_weeks: {
+    timeline_months: {
       type: Number,
       default: 4
     },
@@ -99,6 +99,83 @@ const userSchema = new mongoose.Schema(
 // ============================================================
 
 const User = mongoose.model('User', userSchema);
+
+
+// ============================================================
+// 3b. QUIZ EVALUATION SCHEMA & MODEL
+// ============================================================
+
+const quizEvaluationSchema = new mongoose.Schema(
+  {
+    user_id: {
+      type: String,
+      required: true,
+      index: true
+    },
+    domain: {
+      type: String,
+      required: true
+    },
+    score_pct: {
+      type: Number,
+      required: true
+    },
+    correct_count: {
+      type: Number,
+      required: true
+    },
+    total_questions: {
+      type: Number,
+      required: true
+    },
+    skill_level: {
+      type: String,
+      enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'],
+      required: true
+    },
+    level_description: {
+      type: String,
+      required: true
+    },
+    mastered_topics: [
+      {
+        topic: String,
+        accuracy_pct: Number
+      }
+    ],
+    knowledge_gaps: [
+      {
+        topic: String,
+        accuracy_pct: Number,
+        reason: String
+      }
+    ],
+    topic_evaluations: [
+      {
+        topic: String,
+        correct_count: Number,
+        total_questions: Number,
+        score_pct: Number,
+        proficiency_level: String,
+        beginner_accuracy: Number,
+        intermediate_accuracy: Number,
+        advanced_accuracy: Number,
+        weak_concepts: [String],
+        reason: String
+      }
+    ],
+    answers: [mongoose.Schema.Types.Mixed],
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    collection: 'quiz_evaluations'
+  }
+);
+
+const QuizEvaluation = mongoose.model('QuizEvaluation', quizEvaluationSchema, 'quiz_evaluations');
 
 
 // ============================================================
@@ -292,7 +369,7 @@ const server = http.createServer(async (req, res) => {
         password_hash,
         salt,
         chosen_domain,
-        timeline_weeks,
+        timeline_months,
         daily_hours
       } = payload;
 
@@ -400,11 +477,23 @@ const server = http.createServer(async (req, res) => {
       const domain =
         chosen_domain || 'fullstack';
 
-      const weeks =
-        parseInt(timeline_weeks, 10) || 4;
+      const months =
+        parseInt(timeline_months, 10);
+
+      if (isNaN(months) || months < 1) {
+        return sendJSON(res, 400, {
+          error: 'Preparation timeline must be a positive integer of months (minimum 1).'
+        });
+      }
 
       const hours =
-        parseFloat(daily_hours) || 2.0;
+        parseFloat(daily_hours);
+
+      if (isNaN(hours) || hours <= 0) {
+        return sendJSON(res, 400, {
+          error: 'Daily commitment must be a positive number of hours.'
+        });
+      }
 
 
       // --------------------------------------------------------
@@ -425,7 +514,7 @@ const server = http.createServer(async (req, res) => {
 
         chosen_domain: domain,
 
-        timeline_weeks: weeks,
+        timeline_months: months,
 
         daily_hours: hours,
 
@@ -475,8 +564,8 @@ const server = http.createServer(async (req, res) => {
           chosen_domain:
             mongoUser.chosen_domain,
 
-          timeline_weeks:
-            mongoUser.timeline_weeks,
+          timeline_months:
+            mongoUser.timeline_months,
 
           daily_hours:
             mongoUser.daily_hours,
@@ -677,8 +766,8 @@ const server = http.createServer(async (req, res) => {
           chosen_domain:
             user.chosen_domain,
 
-          timeline_weeks:
-            user.timeline_weeks,
+          timeline_months:
+            user.timeline_months,
 
           daily_hours:
             user.daily_hours,
@@ -708,6 +797,216 @@ const server = http.createServer(async (req, res) => {
 
     }
 
+  }
+
+
+  // ==========================================================
+  // 11b. QUIZ EVALUATION AGENT ENDPOINT
+  // POST /api/quiz/evaluate
+  // ==========================================================
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/quiz/evaluate'
+  ) {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        return sendJSON(res, 503, {
+          error: 'MongoDB Atlas is not connected. Please try again.'
+        });
+      }
+
+      const payload = await readRequestBody(req);
+      let { user_id, domain, answers } = payload;
+
+      if (!user_id || !answers || !Array.isArray(answers) || answers.length === 0) {
+        return sendJSON(res, 400, {
+          error: 'Missing required parameters: user_id, domain, and a non-empty answers array.'
+        });
+      }
+
+      // Find user document to check recorded chosen_domain
+      const dbUser = await User.findOne({ user_id });
+
+      function normalizeDomainName(rawDomain) {
+        if (!rawDomain || typeof rawDomain !== 'string') {
+          return 'Full-Stack Web Development';
+        }
+        const clean = rawDomain.trim().toLowerCase();
+        if (clean.includes('devops') || clean.includes('cloud')) {
+          return 'Cloud Engineering & DevOps';
+        }
+        if (clean.includes('data science') || clean.includes('datascience') || clean.includes('machine learning')) {
+          return 'Data Science & Machine Learning';
+        }
+        if (clean.includes('dsa') || clean.includes('algorithm') || clean.includes('data structure') || clean.includes('interview prep')) {
+          return 'Data Structures & Algorithms (Interview Prep)';
+        }
+        if (clean.includes('cyber') || clean.includes('security') || clean.includes('hacking')) {
+          return 'Cybersecurity & Ethical Hacking';
+        }
+        if (clean.includes('mobile') || clean.includes('react native') || clean.includes('flutter') || clean.includes('ios') || clean.includes('android')) {
+          return 'Mobile App Development (React Native & Flutter)';
+        }
+        if (clean.includes('ai') || clean.includes('llm') || clean.includes('genai') || clean.includes('rag')) {
+          return 'AI & LLM Systems Engineering';
+        }
+        if (clean.includes('system design') || clean.includes('system_design') || clean.includes('architecture') || clean.includes('microservice')) {
+          return 'System Design & Distributed Architecture';
+        }
+        if (clean.includes('fullstack') || clean.includes('full-stack') || clean.includes('web')) {
+          return 'Full-Stack Web Development';
+        }
+        return rawDomain.trim();
+      }
+
+      let resolvedDomain = normalizeDomainName(domain);
+      if ((!domain || domain.trim() === '') && dbUser && dbUser.chosen_domain) {
+        resolvedDomain = normalizeDomainName(dbUser.chosen_domain);
+      }
+
+      let correctCount = 0;
+      const totalQuestions = answers.length;
+      const topicStats = {};
+      const processedAnswers = [];
+
+      answers.forEach(q => {
+        const isCorrect = (q.user_answer !== undefined && q.user_answer !== null && q.user_answer !== 'Unanswered') &&
+          (String(q.user_answer).trim() === String(q.correct_answer).trim());
+        
+        if (isCorrect) {
+          correctCount++;
+        }
+
+        const topic = q.topic || 'General Knowledge';
+        if (!topicStats[topic]) {
+          topicStats[topic] = { total: 0, correct: 0, missedConceptual: false };
+        }
+        topicStats[topic].total++;
+        if (isCorrect) {
+          topicStats[topic].correct++;
+        } else {
+          if (q.difficulty === 'BEGINNER' || !q.difficulty) {
+            topicStats[topic].missedConceptual = true;
+          }
+        }
+
+        processedAnswers.push({
+          id: q.id,
+          question: q.question,
+          options: q.options || [],
+          user_answer: q.user_answer || 'Unanswered',
+          correct_answer: q.correct_answer,
+          topic: topic,
+          difficulty: q.difficulty || 'INTERMEDIATE',
+          is_correct: isCorrect
+        });
+      });
+
+      const scorePct = Math.round((correctCount / totalQuestions) * 100);
+
+      let skillLevel = 'BEGINNER';
+      let levelDescription = '';
+
+      if (scorePct >= 80) {
+        skillLevel = 'ADVANCED';
+        levelDescription = 'High technical proficiency. Focus on system design, internal architecture, performance tuning, and production trade-offs.';
+      } else if (scorePct >= 50) {
+        skillLevel = 'INTERMEDIATE';
+        levelDescription = 'Practical understanding solid. Ready for building projects, official documentation, and applied patterns.';
+      } else {
+        skillLevel = 'BEGINNER';
+        levelDescription = 'Core foundational gaps present. Focus on fundamental syntax and guided visual learning.';
+      }
+
+      const masteredTopics = [];
+      const knowledgeGaps = [];
+
+      let topicEvaluations = [];
+      if (payload && Array.isArray(payload.topic_evaluations) && payload.topic_evaluations.length > 0) {
+        topicEvaluations = payload.topic_evaluations;
+      } else {
+        Object.keys(topicStats).forEach(topic => {
+          const stats = topicStats[topic];
+          const accuracyPct = Math.round((stats.correct / stats.total) * 100);
+
+          let proficiencyLevel = 'INTERMEDIATE';
+          if (accuracyPct >= 80) {
+            proficiencyLevel = 'STRONG';
+            masteredTopics.push({ topic, accuracy_pct: accuracyPct });
+          } else if (accuracyPct < 50 || stats.missedConceptual) {
+            proficiencyLevel = 'WEAK';
+            let reason = accuracyPct < 50 ? 'Accuracy below 50%' : 'Missed core conceptual questions';
+            knowledgeGaps.push({ topic, accuracy_pct: accuracyPct, reason });
+          }
+
+          topicEvaluations.push({
+            topic,
+            correct_count: stats.correct,
+            total_questions: stats.total,
+            score_pct: accuracyPct,
+            proficiency_level: proficiencyLevel
+          });
+        });
+      }
+
+      // Save evaluation in MongoDB Atlas collection `quiz_evaluations`
+      const evaluationDoc = new QuizEvaluation({
+        user_id,
+        domain: resolvedDomain,
+        score_pct: scorePct,
+        correct_count: correctCount,
+        total_questions: totalQuestions,
+        skill_level: skillLevel,
+        level_description: levelDescription,
+        mastered_topics: masteredTopics,
+        knowledge_gaps: knowledgeGaps,
+        topic_evaluations: topicEvaluations,
+        answers: processedAnswers
+      });
+
+      await evaluationDoc.save();
+
+      // Update current_skill_level in user collection (`users` / `Registration`)
+      let updatedUser = await User.findOneAndUpdate(
+        { user_id },
+        { current_skill_level: skillLevel },
+        { new: true }
+      );
+
+      console.log(`✅ Saved Quiz Evaluation for user ${user_id}: ${scorePct}% (${skillLevel}) with ${topicEvaluations.length} topic evaluations`);
+
+      return sendJSON(res, 200, {
+        message: 'Quiz evaluation successfully calculated and persisted to MongoDB Atlas.',
+        evaluation: {
+          id: evaluationDoc._id,
+          user_id,
+          domain: resolvedDomain,
+          score_pct: scorePct,
+          correct_count: correctCount,
+          total_questions: totalQuestions,
+          skill_level: skillLevel,
+          level_description: levelDescription,
+          mastered_topics: masteredTopics,
+          knowledge_gaps: knowledgeGaps,
+          topic_evaluations: topicEvaluations,
+          answers: processedAnswers,
+          createdAt: evaluationDoc.createdAt
+        },
+        user: updatedUser ? {
+          user_id: updatedUser.user_id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          current_skill_level: updatedUser.current_skill_level
+        } : null
+      });
+
+    } catch (err) {
+      console.error('❌ Quiz evaluation error:', err);
+      return sendJSON(res, 500, {
+        error: 'Server evaluation error: ' + err.message
+      });
+    }
   }
 
 
@@ -896,7 +1195,7 @@ async function startServer() {
         chosen_domain:
           'fullstack',
 
-        timeline_weeks:
+        timeline_months:
           4,
 
         daily_hours:
@@ -919,6 +1218,26 @@ async function startServer() {
       );
 
     }
+
+
+    // --------------------------------------------------------
+    // Handle Server Errors (e.g. Port in use)
+    // --------------------------------------------------------
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error('');
+        console.error('==========================================');
+        console.error(`❌ Error: Port ${PORT} is already in use by another running server instance.`);
+        console.error(`💡 Solution: Close the active server or run this command in PowerShell to free port ${PORT}:`);
+        console.error(`   Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force`);
+        console.error('==========================================');
+        console.error('');
+        process.exit(1);
+      } else {
+        console.error('❌ Server error:', err);
+      }
+    });
 
 
     // --------------------------------------------------------
