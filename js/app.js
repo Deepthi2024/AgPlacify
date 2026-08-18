@@ -1163,14 +1163,14 @@ document.addEventListener('DOMContentLoaded', () => {
                       <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.2rem;">
                         <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${t.type}</span>
                         <span class="tier-badge ${t.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${t.difficulty || 'INT'}</span>
-                        <span style="font-size: 0.78rem; font-weight: 600; color: #fff;">${t.title}</span>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">${t.title}</span>
                       </div>
                       <div style="font-size: 0.75rem; color: var(--text-muted);">
                         ${t.practice_details || t.revision_details || 'Core daily learning task.'}
                       </div>
                     </div>
                     <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber);">
-                      ${t.estimated_minutes} mins
+                      ⏱️ ${t.estimated_minutes} mins
                     </div>
                   </div>
                 `;
@@ -1254,33 +1254,194 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================================================================
   // VIEW 5: DAILY LEARNING HUB
   // =========================================================================
-  function renderDailyHub(dayNumber) {
-    window.currentActiveDay = dayNumber;
-    const dailyData = supervisor.getDailyTaskAndResources(dayNumber);
-    if (!dailyData) return;
+  async function renderDailyHub(dayNumber) {
+    const targetDayNum = parseInt(dayNumber, 10) || 1;
+    window.currentActiveDay = targetDayNum;
 
-    document.getElementById('current-day-badge').textContent = `Day ${dailyData.task.dayNumber} Task`;
-    document.getElementById('current-task-title').textContent = dailyData.task.conceptTitle;
-    
-    const typeBadge = document.getElementById('task-type-badge');
-    typeBadge.textContent = dailyData.task.type;
-    typeBadge.className = `node-tag ${dailyData.task.type}`;
+    // Bulletproof roadmap resolution from memory, state, or localStorage
+    let roadmap = window.activePersonalizedRoadmap;
+    if (!roadmap) {
+      const state = supervisor.progressTracker.getUserState();
+      roadmap = state ? state.personalizedRoadmap : null;
+    }
+    if (!roadmap) {
+      try {
+        const storedState = localStorage.getItem('placify_user_state');
+        if (storedState) {
+          const parsed = JSON.parse(storedState);
+          roadmap = parsed.personalizedRoadmap || parsed.roadmap;
+        }
+      } catch (e) {}
+    }
 
-    document.getElementById('current-tier-recommendation').textContent = dailyData.skillTier;
+    const dailyData = supervisor.getDailyTaskAndResources(targetDayNum);
+    const activeSession = supervisor.authAgent.getActiveSession();
+    const domainKey = roadmap ? (roadmap.domain_id || roadmap.domain || roadmap.chosen_domain) : 
+      (activeSession ? activeSession.chosen_domain : (window.currentDraftProfile ? window.currentDraftProfile.chosen_domain : 'cybersecurity'));
 
-    // Render suggested resources
+    const userLevel = roadmap ? (roadmap.overall_level || roadmap.skillTier || 'BEGINNER') : 'BEGINNER';
+
+    // Find exact day object and tasks from active roadmap
+    let dayObj = null;
+    let dayTasksList = [];
+    if (roadmap && Array.isArray(roadmap.monthly_roadmap)) {
+      for (const month of roadmap.monthly_roadmap) {
+        if (Array.isArray(month.weeks)) {
+          for (const week of month.weeks) {
+            if (Array.isArray(week.days)) {
+              for (const day of week.days) {
+                if (parseInt(day.day_number, 10) === targetDayNum) {
+                  dayObj = day;
+                  dayTasksList = Array.isArray(day.tasks) ? day.tasks : [];
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (dayTasksList.length === 0 && dailyData && dailyData.task && Array.isArray(dailyData.task.tasks) && dailyData.task.tasks.length > 0) {
+      dayTasksList = dailyData.task.tasks;
+    }
+
+    const dayTopic = dayObj ? (dayObj.topic || 'Core Learning') : (dailyData && dailyData.task ? dailyData.task.topic : 'Core Learning');
+    const dayWorkload = dayObj ? (dayObj.total_minutes || 150) : (dailyData && dailyData.task && dailyData.task.estHours ? Math.round(dailyData.task.estHours * 60) : 150);
+
+    const dayBadgeEl = document.getElementById('current-day-badge');
+    if (dayBadgeEl) dayBadgeEl.textContent = `Day ${targetDayNum} Task Execution`;
+
+    const titleEl = document.getElementById('current-task-title');
+    if (titleEl) titleEl.textContent = `${dayObj ? (dayObj.day_name || ('Day ' + targetDayNum)) : ('Day ' + targetDayNum)} — ${dayTopic}`;
+
+    const workloadEl = document.getElementById('current-day-workload-badge');
+    if (workloadEl) workloadEl.textContent = `⏱️ ${dayWorkload} Mins Workload`;
+
+    const typeBadgeEl = document.getElementById('task-type-badge');
+    if (typeBadgeEl) {
+      typeBadgeEl.textContent = `${domainKey.toUpperCase()} • ${userLevel}`;
+      typeBadgeEl.className = `node-tag STANDARD`;
+    }
+
     const resList = document.getElementById('suggested-resources-list');
-    resList.innerHTML = dailyData.resources.map(r => `
-      <div class="resource-card">
-        <div class="resource-type-badge"><i class="ph ph-book-open"></i> ${r.type} • ${r.estTime}</div>
-        <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.3rem;">${r.title}</h4>
-        <p style="font-size: 0.83rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 0.6rem;">${r.summary}</p>
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-dim);">
-          <span>Source: ${r.author}</span>
-          <a href="${r.url}" target="_blank" style="color: var(--accent-cyan); text-decoration: none; font-weight: 600;">Open Material <i class="ph ph-arrow-square-out"></i></a>
-        </div>
-      </div>
-    `).join('');
+    if (!resList) return;
+
+    resList.innerHTML = `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);"><i class="ph ph-spinner spinner"></i> Loading Day ${targetDayNum} tasks and curated learning resources...</div>`;
+
+    try {
+      const userId = activeSession ? activeSession.user_id : (window.currentDraftProfile ? window.currentDraftProfile.user_id : null);
+
+      if (dayTasksList.length === 0) {
+        dayTasksList = [
+          {
+            id: `task_day_${targetDayNum}_1`,
+            title: dailyData.task.conceptTitle || `Learn: ${dayTopic}`,
+            type: dailyData.task.type || 'LEARN',
+            difficulty: userLevel,
+            estimated_minutes: dailyData.task.estHours ? Math.round(dailyData.task.estHours * 60) : 45,
+            practice_details: dailyData.task.summary || 'Core daily learning task.'
+          }
+        ];
+      }
+
+      let fullHTML = '';
+
+      for (let tIdx = 0; tIdx < dayTasksList.length; tIdx++) {
+        const taskItem = dayTasksList[tIdx];
+        let typeClass = 'STANDARD';
+        if (taskItem.type === 'PRACTICE' || taskItem.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
+        else if (taskItem.type === 'PROBLEM_SOLVING' || taskItem.type === 'PROJECT') typeClass = 'SKIPPED';
+
+        const taskResources = await supervisor.resourceSuggester.suggestResources(
+          dayTopic || taskItem.title,
+          taskItem.difficulty || userLevel,
+          {
+            id: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+            title: taskItem.title,
+            taskTitle: taskItem.title,
+            topic: dayTopic,
+            dailyTopic: dayTopic,
+            type: taskItem.type,
+            taskType: taskItem.type,
+            estimated_minutes: taskItem.estimated_minutes,
+            taskDuration: taskItem.estimated_minutes,
+            domain: domainKey,
+            chosen_domain: domainKey,
+            user_id: userId,
+            userLevel: taskItem.difficulty || userLevel,
+            difficulty: taskItem.difficulty || userLevel
+          }
+        );
+
+        fullHTML += `
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1.2rem; margin-bottom: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.6rem;">
+              <div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap;">
+                  <span class="node-tag ${typeClass}" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">${taskItem.type || 'LEARN'}</span>
+                  <span class="tier-badge ${taskItem.difficulty || userLevel}" style="font-size: 0.7rem; padding: 0.15rem 0.5rem;">${taskItem.difficulty || userLevel}</span>
+                  <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff; margin: 0;">${taskItem.title}</h3>
+                </div>
+                <div style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.4;">
+                  ${taskItem.practice_details || taskItem.revision_details || taskItem.summary || 'Read conceptual overview, study examples, and execute practice code drills.'}
+                </div>
+              </div>
+              <div style="font-size: 0.88rem; font-weight: 700; color: var(--accent-amber); white-space: nowrap;">
+                ⏱️ ${taskItem.estimated_minutes || 30} mins
+              </div>
+            </div>
+
+            <!-- RECOMMENDED RESOURCES FOR THIS SPECIFIC TASK -->
+            <div style="margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed rgba(255,255,255,0.1);">
+              <h4 style="font-size: 0.86rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.7rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ph ph-books"></i> Recommended Resources for Today's Task:
+              </h4>
+
+              <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                ${taskResources.map((r, idx) => `
+                  <div class="resource-card" style="border-left: 4px solid ${idx === 0 ? 'var(--accent-emerald)' : (idx === 1 ? 'var(--accent-cyan)' : 'var(--accent-amber)')}; padding: 0.9rem; background: rgba(0,0,0,0.25); border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.4rem;">
+                      <span class="node-tag ${r.category_label || (idx === 0 ? 'STANDARD' : 'REMEDIAL')}" style="font-size: 0.72rem; font-weight: 800;">
+                        ⭐ ${r.category_label || (idx === 0 ? 'PRIMARY' : (idx === 1 ? 'ALTERNATIVE' : 'PRACTICE'))}
+                      </span>
+                      <span style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 600;">
+                        ${r.is_official ? '🏛️ Official Documentation' : `Platform: ${r.platform}`}
+                      </span>
+                    </div>
+                    <h5 style="font-size: 0.98rem; font-weight: 700; color: #fff; margin: 0.3rem 0;">${r.title}</h5>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 0.5rem;">${r.description}</p>
+                    
+                    ${r.recommended_section ? `
+                      <div style="font-size: 0.76rem; color: var(--accent-amber); background: rgba(245, 158, 11, 0.1); padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem;">
+                        🎯 <strong>Recommended Section:</strong> ${r.recommended_section} (${r.estimated_minutes || 30} mins)
+                      </div>
+                    ` : ''}
+
+                    <p style="font-size: 0.76rem; color: var(--text-dim); font-style: italic; margin-bottom: 0.6rem;">
+                      💡 <strong>Why this resource:</strong> ${r.relevance_reason || 'Directly supports today\'s specific task.'}
+                    </p>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <span style="font-size: 0.75rem; color: var(--text-muted);">${r.platform}</span>
+                      <a href="${r.url}" target="_blank" rel="noopener noreferrer" class="btn btn-emerald" style="font-size: 0.78rem; padding: 0.3rem 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;">
+                        Open Resource <i class="ph ph-arrow-square-out"></i>
+                      </a>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      resList.innerHTML = fullHTML;
+
+    } catch (err) {
+      console.warn('Error rendering personalized resources:', err);
+      resList.innerHTML = `<div style="padding: 1rem; color: var(--text-muted);">Recommended resources are temporarily unavailable. You may continue with your task workbook below.</div>`;
+    }
 
     updateHeaderStats();
   }

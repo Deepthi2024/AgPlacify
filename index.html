@@ -422,43 +422,38 @@
     <!-- VIEW 5: Daily Learning Hub & Resource Curation -->
     <section id="view-daily-hub" class="view-section">
       <div class="daily-hub-layout">
-        <!-- Main: Current Day Concept & Materials -->
+        <!-- Main: Current Day Tasks & Recommended Resources -->
         <div class="glass-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem; flex-wrap: wrap; gap: 0.6rem;">
             <div>
               <span id="current-day-badge"
                 style="background: rgba(139, 92, 246, 0.2); color: var(--accent-violet); font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px; text-transform: uppercase;">
-                Day 1 Task
+                Day 1 Tasks
               </span>
               <h2 id="current-task-title"
-                style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; margin-top: 0.4rem;">
-                Topic Concept Title
+                style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; margin-top: 0.4rem; color: #fff;">
+                Daily Task Execution
               </h2>
             </div>
-            <span id="task-type-badge" class="node-tag STANDARD">STANDARD</span>
+            <div style="display: flex; gap: 0.6rem; align-items: center;">
+              <span id="current-day-workload-badge" style="font-size: 0.85rem; font-weight: 700; color: var(--accent-amber); background: rgba(245, 158, 11, 0.15); padding: 0.3rem 0.7rem; border-radius: 4px;">
+                ⏱️ Workload
+              </span>
+              <span id="task-type-badge" class="node-tag STANDARD">BEGINNER</span>
+            </div>
           </div>
 
-          <div style="margin: 1.5rem 0;">
-            <h3
-              style="font-size: 1rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; color: var(--accent-cyan);">
-              <i class="ph ph-books"></i> Recommended Resources (Curated by `resource_suggester`)
-            </h3>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-              Tier-matched level recommendations (<strong id="current-tier-recommendation">BEGINNER</strong>) for
-              optimal comprehension:
-            </p>
-            <div id="suggested-resources-list">
-              <!-- Dynamically populated resource cards -->
-            </div>
+          <div id="suggested-resources-list">
+            <!-- Dynamically populated daily tasks & resource cards -->
           </div>
 
           <div
             style="margin-top: 2rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 1.2rem;">
             <button id="view-all-roadmap-btn" class="btn btn-secondary">
-              <i class="ph ph-list-bullets"></i> View Full Roadmap
+              <i class="ph ph-arrow-left"></i> Back to Roadmap
             </button>
             <button id="start-concept-quiz-btn" class="btn btn-emerald">
-              Take Concept Assessment (`resource_fetcher`) <i class="ph ph-note-pencil"></i>
+              Take Day Assessment <i class="ph ph-note-pencil"></i>
             </button>
           </div>
         </div>

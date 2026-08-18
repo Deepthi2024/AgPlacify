@@ -1105,33 +1105,184 @@ class PersonalizedRoadmapAgent {
 
 class ResourceSuggesterAgent {
 
-  suggestResources(
-    topic,
-    skillTier
-  ) {
+  suggestResourcesSync(topic, skillTier, taskContext = {}) {
+    const cleanTopic = topic || taskContext.topic || 'Fundamentals';
+    const cleanTier = (skillTier || taskContext.difficulty || 'BEGINNER').toUpperCase();
+    const rawDomain = taskContext.domain || taskContext.chosen_domain || 'fullstack';
+    const taskTitle = taskContext.title || taskContext.conceptTitle || cleanTopic;
+    const taskType = (taskContext.type || taskContext.taskType || 'LEARN').toUpperCase();
+    const duration = taskContext.estimated_minutes || taskContext.taskDuration || 30;
 
-    const tierResources =
-      window.PLACIFY_DATA.resources[
-      skillTier
-      ] ||
-      window.PLACIFY_DATA.resources[
-      'BEGINNER'
-      ];
+    let domainKey = 'fullstack';
+    const dLower = String(rawDomain).toLowerCase();
+    if (dLower.includes('cyber') || dLower.includes('security')) domainKey = 'cybersecurity';
+    else if (dLower.includes('data') || dLower.includes('science') || dLower.includes('machine') || dLower.includes('ml')) domainKey = 'datascience';
+    else if (dLower.includes('dsa') || dLower.includes('algorithm') || dLower.includes('structure')) domainKey = 'dsa';
+    else if (dLower.includes('devops') || dLower.includes('infra')) domainKey = 'devops';
+    else if (dLower.includes('cloud')) domainKey = 'cloud';
+    else if (dLower.includes('mobile') || dLower.includes('flutter')) domainKey = 'mobile';
+    else if (dLower.includes('ai') || dLower.includes('llm')) domainKey = 'ai_llm';
+    else if (dLower.includes('system') || dLower.includes('design')) domainKey = 'system_design';
+    else if (dLower.includes('fullstack') || dLower.includes('web')) domainKey = 'fullstack';
 
+    let platformInfo = {
+      platform: 'Official Documentation',
+      primaryURL: 'https://docs.python.org/3/tutorial/',
+      altURL: 'https://scikit-learn.org/stable/',
+      practicePlatform: 'Interactive Code Sandbox'
+    };
 
-    return tierResources.map(
-      resource => ({
+    if (domainKey === 'cybersecurity') {
+      const isWin = cleanTopic.toLowerCase().includes('windows') || taskTitle.toLowerCase().includes('windows');
+      platformInfo = {
+        platform: isWin ? 'Microsoft Security Guides' : 'OWASP & Linux Security Guides',
+        primaryURL: isWin ? 'https://learn.microsoft.com/en-us/windows/security/' : 'https://owasp.org/www-project-top-ten/',
+        altURL: 'https://portswigger.net/web-security',
+        practicePlatform: 'Cybersecurity Hands-on Security Lab'
+      };
+    } else if (domainKey === 'datascience') {
+      const isTorch = cleanTopic.toLowerCase().includes('pytorch') || cleanTopic.toLowerCase().includes('neural');
+      const isPandas = cleanTopic.toLowerCase().includes('pandas');
+      platformInfo = {
+        platform: isTorch ? 'PyTorch Docs' : (isPandas ? 'Pandas Docs' : 'Python Data Science Docs'),
+        primaryURL: isTorch ? 'https://pytorch.org/tutorials/' : (isPandas ? 'https://pandas.pydata.org/docs/getting_started/index.html' : 'https://docs.python.org/3/tutorial/'),
+        altURL: 'https://scikit-learn.org/stable/tutorial/index.html',
+        practicePlatform: 'Data Science Interactive Sandbox'
+      };
+    } else if (domainKey === 'dsa') {
+      platformInfo = {
+        platform: 'GeeksforGeeks & Algorithm Visualizers',
+        primaryURL: 'https://www.geeksforgeeks.org/data-structures/',
+        altURL: 'https://leetcode.com/explore/',
+        practicePlatform: 'DSA Code Drills Sandbox'
+      };
+    } else if (domainKey === 'devops') {
+      platformInfo = {
+        platform: 'Docker & Infrastructure Guides',
+        primaryURL: 'https://docs.docker.com/get-started/',
+        altURL: 'https://kubernetes.io/docs/tutorials/',
+        practicePlatform: 'DevOps Terminal Sandbox'
+      };
+    } else if (domainKey === 'cloud') {
+      platformInfo = {
+        platform: 'Cloud Architecture & Provider Docs',
+        primaryURL: 'https://docs.aws.amazon.com/',
+        altURL: 'https://cloud.google.com/docs',
+        practicePlatform: 'Cloud Architecture Lab'
+      };
+    } else if (domainKey === 'mobile') {
+      platformInfo = {
+        platform: 'Flutter & Mobile SDK Docs',
+        primaryURL: 'https://docs.flutter.dev/',
+        altURL: 'https://developer.android.com/guide',
+        practicePlatform: 'Mobile UI Emulator Sandbox'
+      };
+    } else if (domainKey === 'ai_llm') {
+      platformInfo = {
+        platform: 'PyTorch & Hugging Face AI Docs',
+        primaryURL: 'https://pytorch.org/tutorials/',
+        altURL: 'https://huggingface.co/learn/nlp-course/chapter1/1',
+        practicePlatform: 'AI Model Training Sandbox'
+      };
+    } else if (domainKey === 'system_design') {
+      platformInfo = {
+        platform: 'System Design Primer & Tech Specs',
+        primaryURL: 'https://github.com/donnemartin/system-design-primer',
+        altURL: 'https://martinfowler.com/architecture/',
+        practicePlatform: 'Architecture Diagramming Sandbox'
+      };
+    } else {
+      platformInfo = {
+        platform: 'MDN Web Docs & W3C Specs',
+        primaryURL: 'https://developer.mozilla.org/en-US/docs/Learn',
+        altURL: 'https://react.dev/learn',
+        practicePlatform: 'Full-Stack Web Sandbox'
+      };
+    }
 
-        ...resource,
+    let typeDesc = `Structured, verified ${cleanTier.toLowerCase()} learning guide explaining ${cleanTopic} and practical usage.`;
+    let recSection = `Section: ${cleanTopic} Fundamentals`;
+    let typeLabel = 'TUTORIAL';
 
-        suggestedForTopic:
-          topic,
+    if (taskType === 'PRACTICE') {
+      typeDesc = `Guided coding drills, problem sets, and interactive exercises for ${cleanTopic}.`;
+      recSection = `Interactive Lab: ${cleanTopic} Code Drills`;
+      typeLabel = 'PRACTICE';
+    } else if (taskType === 'IMPLEMENT') {
+      typeDesc = `Technical implementation guide and API reference for building ${cleanTopic} modules.`;
+      recSection = `Implementation Guide: ${cleanTopic} Code Patterns`;
+      typeLabel = 'DOCUMENTATION';
+    } else if (taskType === 'REVISION') {
+      typeDesc = `Concise summary notes, concept flashcards, and quick reference sheet for ${cleanTopic}.`;
+      recSection = `Quick Reference: ${cleanTopic} Core Principles`;
+      typeLabel = 'CHEAT_SHEET';
+    } else if (taskType === 'PROJECT') {
+      typeDesc = `End-to-end hands-on project guide and repository structure for ${cleanTopic}.`;
+      recSection = `Project Blueprint: ${cleanTopic}`;
+      typeLabel = 'PROJECT';
+    }
 
-        recommendedTier:
-          skillTier
+    return [
+      {
+        resource_id: `res_sync_${Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: `${cleanTopic}: ${taskTitle}`,
+        platform: platformInfo.platform,
+        url: platformInfo.primaryURL,
+        resource_type: typeLabel,
+        description: typeDesc,
+        topic: cleanTopic,
+        difficulty: cleanTier,
+        estimated_minutes: duration,
+        recommended_section: recSection,
+        relevance_reason: `Directly matched to today's ${domainKey.toUpperCase()} ${cleanTier} task "${taskTitle}".`,
+        is_official: true
+      },
+      {
+        resource_id: `res_sync_${Date.now()}_2`,
+        category_label: taskType === 'PRACTICE' ? 'PRIMARY' : 'PRACTICE',
+        title: `${cleanTopic} Interactive Practice & Drills`,
+        platform: platformInfo.practicePlatform,
+        url: platformInfo.altURL || platformInfo.primaryURL,
+        resource_type: 'PRACTICE',
+        description: `Interactive problem set and self-check validation drills for ${cleanTopic}.`,
+        topic: cleanTopic,
+        difficulty: cleanTier,
+        estimated_minutes: Math.round(duration * 0.7),
+        recommended_section: `Self-Check Drills: ${cleanTopic}`,
+        relevance_reason: `Provides hands-on practice for ${cleanTopic} within the ${domainKey} track.`,
+        is_official: false
+      }
+    ];
+  }
 
-      })
-    );
+  async suggestResources(topic, skillTier, taskContext = {}) {
+    try {
+      const res = await fetch('http://localhost:5000/api/resources/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: taskContext.id || taskContext.taskId,
+          taskTitle: taskContext.title || taskContext.taskTitle || topic,
+          taskType: taskContext.type || taskContext.taskType || 'LEARN',
+          taskDifficulty: skillTier || taskContext.difficulty || 'BEGINNER',
+          taskDuration: taskContext.estimated_minutes || taskContext.taskDuration || 30,
+          dailyTopic: topic,
+          subtopic: taskContext.subtopic || topic,
+          domain: taskContext.domain || 'fullstack',
+          userLevel: skillTier || 'BEGINNER',
+          user_id: taskContext.user_id
+        })
+      });
+      const data = await res.json();
+      if (data.resources && data.resources.length > 0) {
+        return data.resources;
+      }
+    } catch (err) {
+      console.warn('Resource recommendation API fallback:', err.message);
+    }
+
+    return this.suggestResourcesSync(topic, skillTier, taskContext);
   }
 }
 
@@ -2209,71 +2360,76 @@ class PlacifySupervisorAgent {
      DAILY LEARNING LOOP
      ========================================================== */
 
-  getDailyTaskAndResources(
-    dayNumber
-  ) {
-
-    const state =
-      this.progressTracker.getUserState();
-
-
-    if (
-      !state.personalizedRoadmap
-    ) {
-
+  getDailyTaskAndResources(dayNumber) {
+    const state = this.progressTracker.getUserState();
+    const roadmap = state?.personalizedRoadmap || window.activePersonalizedRoadmap;
+    if (!roadmap) {
       return null;
     }
 
+    const targetDayNum = parseInt(dayNumber, 10) || 1;
+    let foundDay = null;
+    let foundTask = null;
 
-    const task =
-      state.personalizedRoadmap.dailyTasks.find(
-        t =>
-          t.dayNumber ===
-          dayNumber
-      ) ||
-      state.personalizedRoadmap.dailyTasks[0];
-
-
-    if (!task) {
-
-      return null;
+    if (Array.isArray(roadmap.monthly_roadmap)) {
+      for (const month of roadmap.monthly_roadmap) {
+        if (Array.isArray(month.weeks)) {
+          for (const week of month.weeks) {
+            if (Array.isArray(week.days)) {
+              for (const day of week.days) {
+                if (parseInt(day.day_number, 10) === targetDayNum) {
+                  foundDay = day;
+                  if (Array.isArray(day.tasks) && day.tasks.length > 0) {
+                    foundTask = day.tasks[0];
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
+    if (!foundTask && Array.isArray(roadmap.dailyTasks)) {
+      foundTask = roadmap.dailyTasks.find(t => parseInt(t.dayNumber || t.day_number, 10) === targetDayNum) || roadmap.dailyTasks[0];
+    }
 
-    const skillTier =
-      state.personalizedRoadmap.skillTier ||
-      'BEGINNER';
+    const skillTier = roadmap.overall_level || roadmap.skillTier || 'BEGINNER';
+    const domain = roadmap.domain_id || 'fullstack';
+    const topic = (foundDay && foundDay.topic) || (foundTask && (foundTask.topic || foundTask.title)) || 'Core Learning';
 
+    const task = {
+      dayNumber: targetDayNum,
+      conceptTitle: (foundTask && foundTask.title) || `Day ${targetDayNum}: ${topic}`,
+      topic: topic,
+      type: (foundTask && foundTask.type) || 'LEARN',
+      estHours: foundTask ? ((foundTask.estimated_minutes || 45) / 60) : 1,
+      tasks: (foundDay && Array.isArray(foundDay.tasks)) ? foundDay.tasks : (foundTask ? [foundTask] : [])
+    };
 
-    this.logAgentAction(
+    const taskContext = {
+      id: (foundTask && foundTask.id) || `task_day_${targetDayNum}`,
+      title: task.conceptTitle,
+      type: task.type,
+      estimated_minutes: Math.round(task.estHours * 60),
+      domain: domain,
+      user_id: roadmap.user_id,
+      topic: topic,
+      difficulty: skillTier
+    };
 
-      'resource_suggester',
-
-      'Recommending Learning Materials',
-
-      `Curating ${skillTier}-level resources for concept: "${task.topic}"`
-
-    );
-
-
-    const resources =
-      this.resourceSuggester.suggestResources(
-
-        task.topic,
-
-        skillTier
-
-      );
-
+    let resources = [];
+    if (foundTask && Array.isArray(foundTask.recommended_resources) && foundTask.recommended_resources.length > 0) {
+      resources = foundTask.recommended_resources;
+    } else {
+      resources = this.resourceSuggester.suggestResourcesSync(topic, skillTier, taskContext);
+    }
 
     return {
-
       task,
-
       skillTier,
-
       resources
-
     };
   }
 
