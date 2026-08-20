@@ -63,23 +63,6 @@
   <!-- Main Container -->
   <main class="app-container">
 
-    <!-- Live Agent Terminal Console -->
-    <section class="glass-card" style="padding: 1rem; border-color: rgba(139, 92, 246, 0.3);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
-        <div
-          style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.85rem; color: var(--accent-violet);">
-          <i class="ph ph-cpu" style="font-size: 1.1rem;"></i>
-          <span>Placify Agent Network Activity Stream</span>
-        </div>
-        <div style="font-size: 0.75rem; color: var(--text-muted);">
-          Active Coordinator: <strong style="color: var(--accent-cyan);">Supervisor Agent & Auth Specialist</strong>
-        </div>
-      </div>
-      <div id="agent-console" class="agent-console">
-        <!-- Live log entries appended here -->
-      </div>
-    </section>
-
     <!-- VIEW 1: Auth & Onboarding Phase -->
     <section id="view-onboarding" class="view-section active">
       <div class="glass-card">
@@ -131,14 +114,6 @@
               </div>
             </div>
 
-            <div class="form-group">
-              <label><i class="ph ph-compass"></i> Target Tech Domain (`chosen_domain`):</label>
-              <div id="domain-grid" class="domain-grid">
-                <!-- Dynamically populated tech domains -->
-              </div>
-              <input type="hidden" id="selected-domain-id" value="fullstack" required>
-            </div>
-
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
               <div class="form-group">
                 <label for="timeline-months"><i class="ph ph-calendar"></i> Preparation Timeline
@@ -158,7 +133,7 @@
 
             <div style="margin-top: 1.5rem; text-align: right;">
               <button type="submit" class="btn btn-primary" id="register-btn">
-                Complete Registration & Pass to `quiz_evaluator` <i class="ph ph-arrow-right"></i>
+                Create Account <i class="ph ph-arrow-right"></i>
               </button>
             </div>
           </form>
@@ -197,6 +172,28 @@
       </div>
     </section>
 
+    <!-- VIEW 1b: Domain Selection (Post-Registration) -->
+    <section id="view-domain-selection" class="view-section">
+      <div class="glass-card">
+        <div class="section-title">
+          <i class="ph ph-compass"></i> Choose Your Learning Domain
+        </div>
+        <p class="section-subtitle" id="domain-selection-subtitle">Welcome! Select the tech domain you want to master. Your personalized roadmap will be built around this choice.</p>
+
+        <div id="domain-selection-grid" class="domain-grid" style="margin-top: 1.5rem;">
+          <!-- Dynamically populated by app.js -->
+        </div>
+
+        <div id="domain-select-error" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
+
+        <div style="margin-top: 2rem; text-align: right;">
+          <button type="button" id="confirm-domain-btn" class="btn btn-primary" style="padding: 0.8rem 2rem; font-size: 1rem;">
+            <i class="ph ph-arrow-right"></i> Continue with Selected Domain
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW 2: Diagnostic Quiz Phase -->
     <section id="view-diagnostic" class="view-section">
       <div class="glass-card">
@@ -204,45 +201,167 @@
           <div>
             <div class="section-title">
               <i class="ph ph-clipboard-text"></i>
-              Phase 2: NPTEL-Style Technical Diagnostic Assessment
+              Phase 2: Domain Proficiency Baseline & Assessment Setup
             </div>
-            <p class="section-subtitle" style="margin-bottom: 0;">Evaluated by <strong
-                style="color: var(--accent-rose);">`quiz_evaluator`</strong> sub-agent across conceptual, application, code output, and scenario-based topics.</p>
+            <p class="section-subtitle" style="margin-bottom: 0;">Declare where you stand in <strong id="diagnostic-domain-name-header" style="color: var(--accent-cyan);">Chosen Domain</strong> and choose whether to validate with our AI Diagnostic Quiz.</p>
           </div>
           <div
             id="diagnostic-concept-count-badge"
             style="background: rgba(139, 92, 246, 0.15); color: var(--accent-violet); padding: 0.4rem 0.8rem; border-radius: 50px; font-size: 0.85rem; font-weight: 700;">
-            30 Questions
+            Technical Diagnostic Quiz
           </div>
         </div>
 
-        <!-- Question Palette Navigation -->
-        <div style="margin-bottom: 1rem;">
-          <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem;">Question Palette (Click to jump):</div>
-          <div id="diagnostic-palette-container" style="display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.8rem; background: rgba(0, 0, 0, 0.25); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
-            <!-- Palette buttons 1..30 populated dynamically -->
+        <!-- STEP 1: MANDATORY SELF-ASSESSMENT (WHERE DO YOU STAND?) -->
+        <div style="margin-bottom: 1.5rem; background: rgba(139, 92, 246, 0.06); border: 1px solid rgba(139, 92, 246, 0.25); padding: 1.25rem; border-radius: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="background: var(--accent-violet); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800;">1</span>
+                Step 1: Declare Where You Stand in <span id="manual-domain-title" style="color: var(--accent-cyan);">Chosen Domain</span> <span style="color: var(--accent-rose); font-size: 0.8rem;">*Required</span>
+              </h3>
+              <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.2rem 0 0 1.9rem;">
+                Select your current self-assessed proficiency level. This serves as your baseline for roadmap customization.
+              </p>
+            </div>
+            <span id="selected-level-pill" class="tier-label BEGINNER" style="font-size: 0.85rem; padding: 0.3rem 0.8rem;">BEGINNER SELECTED</span>
+          </div>
+
+          <!-- LEVEL SELECTION CARDS -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <!-- CARD 1: BEGINNER -->
+            <div class="manual-level-card active" data-level="BEGINNER" style="background: rgba(255, 255, 255, 0.03); border: 2px solid var(--accent-emerald); border-radius: 12px; padding: 1.1rem; cursor: pointer; transition: all 0.2s;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span class="tier-label BEGINNER" style="font-size: 0.78rem; padding: 0.15rem 0.5rem;">BEGINNER</span>
+                <i class="ph ph-check-circle manual-card-icon" style="font-size: 1.3rem; color: var(--accent-emerald);"></i>
+              </div>
+              <h4 style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Novice / Foundational</h4>
+              <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin: 0;">
+                New to this domain or building core principles from scratch. Needs step-by-step foundational guidance.
+              </p>
+            </div>
+
+            <!-- CARD 2: INTERMEDIATE -->
+            <div class="manual-level-card" data-level="INTERMEDIATE" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 1.1rem; cursor: pointer; transition: all 0.2s;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span class="tier-label INTERMEDIATE" style="font-size: 0.78rem; padding: 0.15rem 0.5rem; background: rgba(245, 158, 11, 0.2); color: #f59e0b;">INTERMEDIATE</span>
+                <i class="ph ph-circle manual-card-icon" style="font-size: 1.3rem; color: var(--text-muted);"></i>
+              </div>
+              <h4 style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Practical Practitioner</h4>
+              <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin: 0;">
+                Familiar with core concepts & syntax. Ready for applied projects, framework integration & practical workflows.
+              </p>
+            </div>
+
+            <!-- CARD 3: ADVANCED -->
+            <div class="manual-level-card" data-level="ADVANCED" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 1.1rem; cursor: pointer; transition: all 0.2s;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span class="tier-label ADVANCED" style="font-size: 0.78rem; padding: 0.15rem 0.5rem;">ADVANCED</span>
+                <i class="ph ph-circle manual-card-icon" style="font-size: 1.3rem; color: var(--text-muted);"></i>
+              </div>
+              <h4 style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Experienced Developer</h4>
+              <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin: 0;">
+                High technical proficiency. Looking to focus on advanced architecture, system design & optimization.
+              </p>
+            </div>
+          </div>
+
+          <!-- OPTIONAL TOPIC-WISE SELF RATING -->
+          <div style="margin-top: 1.2rem; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+            <div style="font-size: 0.85rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ph ph-list-checks" style="color: var(--accent-violet);"></i> Optional: Mark Specific Topics Needing Remediation
+            </div>
+            <div id="manual-topic-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.6rem; margin-top: 0.6rem;">
+              <!-- Dynamically populated per chosen domain in app.js -->
+            </div>
           </div>
         </div>
 
-        <form id="diagnostic-quiz-form" class="quiz-container">
-          <div id="diagnostic-questions-container">
-            <!-- Dynamically populated NPTEL-style questions -->
-          </div>
+        <!-- STEP 2: CHOOSE ASSESSMENT PATH -->
+        <div style="margin-bottom: 1.5rem; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1.25rem; border-radius: 12px;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0 0 0.8rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="background: var(--accent-cyan); color: #000; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800;">2</span>
+            Step 2: Choose How You Want to Complete Baseline Setup
+          </h3>
 
-          <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-            <div style="display: flex; gap: 0.5rem;">
-              <button type="button" id="quiz-prev-btn" class="btn btn-secondary" style="display: none;">
-                <i class="ph ph-arrow-left"></i> Previous Question
-              </button>
-              <button type="button" id="quiz-next-btn" class="btn btn-secondary">
-                Next Question <i class="ph ph-arrow-right"></i>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <!-- OPTION A: TAKE DIAGNOSTIC QUIZ -->
+            <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 12px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ph ph-note-pencil" style="color: var(--accent-violet); font-size: 1.2rem;"></i> Take Technical Diagnostic Quiz
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                  Validate your declared baseline with a short diagnostic test covering multiple question types across key topics.
+                </p>
+              </div>
+              <button type="button" id="start-diagnostic-quiz-btn" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                <i class="ph ph-play"></i> Take Diagnostic Quiz
               </button>
             </div>
-            <button type="submit" id="quiz-submit-btn" class="btn btn-emerald">
-              Submit Assessment to `quiz_evaluator` <i class="ph ph-check-circle"></i>
-            </button>
+
+            <!-- OPTION B: SKIP QUIZ & BUILD ROADMAP DIRECTLY -->
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ph ph-lightning" style="color: var(--accent-emerald); font-size: 1.2rem;"></i> Skip Quiz & Generate Roadmap Now
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                  Proceed directly using your declared skill level (<span id="declared-level-summary" style="color: var(--accent-emerald); font-weight: 700;">BEGINNER</span>). No diagnostic quiz required.
+                </p>
+              </div>
+              <button type="button" id="submit-self-assessment-btn" class="btn btn-emerald" style="width: 100%; justify-content: center; font-weight: 700;">
+                <i class="ph ph-sparkle"></i> Build Roadmap with My Declared Level
+              </button>
+            </div>
           </div>
-        </form>
+        </div>
+
+        <!-- WRAPPER: DIAGNOSTIC QUIZ CONTAINER (Hidden until user clicks "Take Diagnostic Quiz") -->
+        <div id="diagnostic-quiz-wrapper" style="display: none; margin-top: 1.5rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 12px; padding: 1.2rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="font-size: 0.9rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ph ph-question" style="color: var(--accent-violet);"></i> NPTEL Diagnostic Test for <span id="quiz-domain-title" style="color: var(--accent-cyan);">Chosen Domain</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              Declared Baseline: <strong id="quiz-declared-level-tag" class="tier-label BEGINNER" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">BEGINNER</strong>
+            </div>
+          </div>
+
+          <!-- Question Palette Navigation -->
+          <div style="margin-bottom: 1rem;">
+            <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem;">Question Palette (Click to jump):</div>
+            <div id="diagnostic-palette-container" style="display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.8rem; background: rgba(0, 0, 0, 0.25); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
+              <!-- Palette buttons 1..30 populated dynamically -->
+            </div>
+          </div>
+
+          <form id="diagnostic-quiz-form" class="quiz-container">
+            <div id="diagnostic-questions-container">
+              <!-- Dynamically populated NPTEL-style questions -->
+            </div>
+
+            <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+              <div style="display: flex; gap: 0.5rem;">
+                <button type="button" id="quiz-prev-btn" class="btn btn-secondary" style="display: none;">
+                  <i class="ph ph-arrow-left"></i> Previous Question
+                </button>
+                <button type="button" id="quiz-next-btn" class="btn btn-secondary">
+                  Next Question <i class="ph ph-arrow-right"></i>
+                </button>
+              </div>
+
+              <div style="display: flex; gap: 0.6rem; align-items: center;">
+                <button type="button" id="quiz-skip-btn" class="btn btn-secondary" style="border-color: rgba(245, 158, 11, 0.4); color: #f59e0b;">
+                  <i class="ph ph-skip-forward"></i> Skip Quiz & Use Declared Level
+                </button>
+                <button type="submit" id="quiz-submit-btn" class="btn btn-emerald">
+                  Submit Quiz to `quiz_evaluator` <i class="ph ph-check-circle"></i>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
       </div>
     </section>
 

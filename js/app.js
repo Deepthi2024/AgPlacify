@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Global UI references
   const views = {
     onboarding: document.getElementById('view-onboarding'),
+    domainSelection: document.getElementById('view-domain-selection'),
     diagnostic: document.getElementById('view-diagnostic'),
     assessmentReport: document.getElementById('view-assessment-report'),
     roadmap: document.getElementById('view-roadmap'),
@@ -20,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Register live agent logging callback
   window.onAgentLog = function(logEntry) {
+    if (!consoleContainer) return;
     const div = document.createElement('div');
     div.className = 'console-entry';
     div.innerHTML = `
@@ -43,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Asynchronously persist last_route in MongoDB Atlas for authenticated users
     const activeSession = supervisor.authAgent.getActiveSession();
-    if (activeSession && activeSession.user_id && viewKey !== 'onboarding' && viewKey !== 'diagnostic') {
+    if (activeSession && activeSession.user_id && viewKey !== 'onboarding' && viewKey !== 'diagnostic' && viewKey !== 'domainSelection') {
       fetch('http://localhost:5000/api/user/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -92,38 +94,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Domain Grid Rendering
-  function renderDomainGrid() {
-    const grid = document.getElementById('domain-grid');
-    const selectedInput = document.getElementById('selected-domain-id');
+  // Domain Selection Screen Renderer (used post-registration and for login when domain is missing)
+  let selectedDomainId = null;
 
-    if (!grid || !selectedInput) return;
+  function renderDomainSelectionScreen(userName) {
+    const grid = document.getElementById('domain-selection-grid');
+    const subtitle = document.getElementById('domain-selection-subtitle');
+    if (!grid) return;
+
+    selectedDomainId = null;
+
+    if (subtitle && userName) {
+      subtitle.textContent = `Welcome, ${userName}! Select the tech domain you want to master. Your personalized roadmap will be built around this choice.`;
+    }
 
     const domainsList = (window.PLACIFY_DATA && window.PLACIFY_DATA.domains) ? window.PLACIFY_DATA.domains : [];
-
-    grid.innerHTML = domainsList.map((d, index) => `
-      <div class="domain-card ${index === 0 ? 'selected' : ''}" data-id="${d.id}">
+    grid.innerHTML = domainsList.map(d => `
+      <div class="domain-card" data-id="${d.id}" id="dsc-${d.id}">
         <div class="domain-icon"><i class="ph ${d.icon}"></i></div>
         <h3>${d.name}</h3>
         <p>${d.description}</p>
       </div>
     `).join('');
 
-    // Set initial value to first domain if not set
-    if (domainsList.length > 0 && (!selectedInput.value || selectedInput.value === 'fullstack')) {
-      selectedInput.value = domainsList[0].id;
-    }
-
     grid.querySelectorAll('.domain-card').forEach(card => {
       card.addEventListener('click', () => {
         grid.querySelectorAll('.domain-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
-        selectedInput.value = card.dataset.id;
+        selectedDomainId = card.dataset.id;
+        const errEl = document.getElementById('domain-select-error');
+        if (errEl) errEl.style.display = 'none';
       });
     });
   }
 
-  // Render Domain Grid immediately
+  // (legacy: keep renderDomainGrid as no-op since domain grid removed from reg form)
+  function renderDomainGrid() {}
+
+  // Render Domain Grid immediately (no-op now)
   renderDomainGrid();
 
   // Restore Active Session on Load
@@ -140,8 +148,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     supervisor.checkUserOnboardingState(activeSession.user_id).then(async (state) => {
-      if (state.action === 'QUIZ') {
-        renderDiagnosticQuiz(activeSession.chosen_domain || 'fullstack');
+      if (state.action === 'DOMAIN_SELECT') {
+        renderDomainSelectionScreen(activeSession.name);
+        switchView('domainSelection');
+      } else if (state.action === 'QUIZ') {
+        renderDiagnosticQuiz(activeSession.chosen_domain);
         switchView('diagnostic');
       } else {
         if (state.roadmap) {
@@ -203,7 +214,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const name = document.getElementById('reg-name').value;
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
-    const chosen_domain = document.getElementById('selected-domain-id').value;
     const timeline_months = parseInt(document.getElementById('timeline-months').value, 10);
     const daily_hours = parseFloat(document.getElementById('daily-hours').value);
 
@@ -220,12 +230,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      // 1. Authenticate / Register via AuthAgent
+      // 1. Authenticate / Register via AuthAgent (no domain yet)
       const profile = await supervisor.registerUser({
         name,
         email,
         password,
-        chosen_domain,
         timeline_months,
         daily_hours
       });
@@ -236,15 +245,15 @@ document.addEventListener('DOMContentLoaded', () => {
       window.currentDraftProfile = {
         user_id: profile.user_id,
         name: profile.name,
-        domainId: profile.chosen_domain,
-        chosen_domain: profile.chosen_domain,
+        domainId: null,
+        chosen_domain: null,
         timelineMonths: profile.timeline_months,
         dailyHours: profile.daily_hours
       };
 
-      // 2. NEW USER: Pass user_id and chosen_domain to diagnostic quiz
-      renderDiagnosticQuiz(profile.chosen_domain);
-      switchView('diagnostic');
+      // 2. NEW USER: Go to domain selection screen
+      renderDomainSelectionScreen(profile.name);
+      switchView('domainSelection');
 
     } catch (err) {
       if (err.status === 409 || (err.message && err.message.toLowerCase().includes('already exists'))) {
@@ -300,7 +309,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // 2. CHECK AUTHORITATIVE MONGODB ONBOARDING STATE
       const onboardingState = await supervisor.checkUserOnboardingState(profile.user_id);
 
-      if (onboardingState.action === 'QUIZ') {
+      if (onboardingState.action === 'DOMAIN_SELECT') {
+        // User has no domain yet — show domain selection
+        renderDomainSelectionScreen(profile.name);
+        switchView('domainSelection');
+      } else if (onboardingState.action === 'QUIZ') {
         // New user / incomplete quiz -> Diagnostic Quiz
         renderDiagnosticQuiz(profile.chosen_domain);
         switchView('diagnostic');
@@ -333,6 +346,80 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =========================================================================
+  // VIEW 1b: DOMAIN SELECTION SCREEN HANDLER
+  // =========================================================================
+  const confirmDomainBtn = document.getElementById('confirm-domain-btn');
+  const domainSelectError = document.getElementById('domain-select-error');
+
+  if (confirmDomainBtn) {
+    confirmDomainBtn.addEventListener('click', async () => {
+      if (domainSelectError) domainSelectError.style.display = 'none';
+
+      if (!selectedDomainId) {
+        if (domainSelectError) {
+          domainSelectError.textContent = 'Please click to select a domain before continuing.';
+          domainSelectError.style.display = 'flex';
+        }
+        return;
+      }
+
+      const activeSession = supervisor.authAgent.getActiveSession() || window.currentDraftProfile;
+      const userId = activeSession ? activeSession.user_id : null;
+
+      if (!userId) {
+        if (domainSelectError) {
+          domainSelectError.textContent = 'User session not found. Please register or sign in again.';
+          domainSelectError.style.display = 'flex';
+        }
+        return;
+      }
+
+      try {
+        confirmDomainBtn.disabled = true;
+        confirmDomainBtn.innerHTML = '<i class="ph ph-spinner spinner"></i> Saving Domain...';
+
+        const res = await fetch(`http://localhost:5000/api/user/${userId}/domain`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chosen_domain: selectedDomainId })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.profile) {
+          throw new Error(data.error || 'Failed to save selected domain.');
+        }
+
+        const updatedProfile = data.profile;
+        supervisor.authAgent.setActiveSession(updatedProfile);
+        updateHeaderUserPill(updatedProfile);
+
+        window.currentDraftProfile = {
+          user_id: updatedProfile.user_id,
+          name: updatedProfile.name,
+          domainId: updatedProfile.chosen_domain,
+          chosen_domain: updatedProfile.chosen_domain,
+          timelineMonths: updatedProfile.timeline_months,
+          dailyHours: updatedProfile.daily_hours
+        };
+
+        // Render Phase 2: Diagnostic Quiz Phase
+        renderDiagnosticQuiz(selectedDomainId);
+        switchView('diagnostic');
+
+      } catch (err) {
+        if (domainSelectError) {
+          domainSelectError.textContent = err.message || 'Failed to save domain. Please try again.';
+          domainSelectError.style.display = 'flex';
+        }
+      } finally {
+        confirmDomainBtn.disabled = false;
+        confirmDomainBtn.innerHTML = '<i class="ph ph-arrow-right"></i> Continue with Selected Domain';
+      }
+    });
+  }
+
+  // =========================================================================
   // =========================================================================
   // VIEW 2: NPTEL-STYLE DIAGNOSTIC QUIZ RUNNER
   // =========================================================================
@@ -340,23 +427,65 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentDiagnosticDomainObj = null;
   let diagnosticUserAnswers = {};
 
+  function shuffleArray(array) {
+    const arr = [...(array || [])];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
   function renderDiagnosticQuiz(domainId) {
     const domain = window.PLACIFY_DATA.findDomain(domainId);
     currentDiagnosticDomainObj = domain;
     currentDiagnosticIndex = 0;
     diagnosticUserAnswers = {};
 
+    // Minimize and randomize quiz questions (Sample 10 random questions per session from domain pool)
+    const allDiagnostics = domain.diagnostics || [];
+    const activeDiagnostics = shuffleArray(allDiagnostics).slice(0, 10);
+    currentDiagnosticDomainObj.activeDiagnostics = activeDiagnostics;
+
     const container = document.getElementById('diagnostic-questions-container');
     const paletteContainer = document.getElementById('diagnostic-palette-container');
     const countBadge = document.getElementById('diagnostic-concept-count-badge');
 
     if (countBadge) {
-      countBadge.textContent = `${domain.diagnostics.length} Questions`;
+      countBadge.textContent = 'Technical Diagnostic Quiz';
     }
 
-    // Render Palette Buttons
+    // Populate Manual Self-Assessment Header & Topic Grid
+    const headerDomainName = document.getElementById('diagnostic-domain-name-header');
+    if (headerDomainName) headerDomainName.textContent = domain.name;
+
+    const manualDomainTitle = document.getElementById('manual-domain-title');
+    if (manualDomainTitle) manualDomainTitle.textContent = domain.name;
+
+    const quizDomainTitle = document.getElementById('quiz-domain-title');
+    if (quizDomainTitle) quizDomainTitle.textContent = domain.name;
+
+    // Reset Quiz Wrapper to hidden initially
+    const quizWrapper = document.getElementById('diagnostic-quiz-wrapper');
+    if (quizWrapper) quizWrapper.style.display = 'none';
+
+    const topicGrid = document.getElementById('manual-topic-grid');
+    if (topicGrid && domain) {
+      const domainTopics = domain.topics || Array.from(new Set(allDiagnostics.map(d => d.topic))).filter(Boolean);
+      topicGrid.innerHTML = domainTopics.map((topic, idx) => `
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 0.82rem; font-weight: 600; color: #fff;">${topic}</span>
+          <label style="font-size: 0.75rem; color: var(--accent-rose); display: flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+            <input type="checkbox" class="manual-weak-topic-cb" data-topic="${topic}" style="accent-color: var(--accent-rose);">
+            Need Practice
+          </label>
+        </div>
+      `).join('');
+    }
+
+    // Render Palette Buttons for the 10 active randomized questions
     if (paletteContainer) {
-      paletteContainer.innerHTML = domain.diagnostics.map((q, idx) => `
+      paletteContainer.innerHTML = activeDiagnostics.map((q, idx) => `
         <button type="button" class="palette-btn ${idx === 0 ? 'active' : ''}" data-qidx="${idx}" id="palette-btn-${idx}" style="min-width: 32px; height: 32px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">
           ${idx + 1}
         </button>
@@ -373,8 +502,8 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
-    // Render Question Cards
-    container.innerHTML = domain.diagnostics.map((q, idx) => {
+    // Render Question Cards for active randomized questions
+    container.innerHTML = activeDiagnostics.map((q, idx) => {
       const qType = q.type || 'MCQ';
       const isMSQ = qType === 'MSQ';
       const isNumerical = qType === 'NUMERICAL';
@@ -389,7 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="quiz-question-card" data-qid="${q.id}" data-qidx="${idx}" style="display: ${idx === 0 ? 'block' : 'none'};">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
-              <span class="question-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-violet); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">Q${idx + 1} / ${domain.diagnostics.length}</span>
+              <span class="question-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-violet); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">Q${idx + 1} / ${activeDiagnostics.length}</span>
               <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${q.topic}</span>
               <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${q.subtopic || 'Core Concept'}</span>
             </div>
@@ -479,8 +608,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  function getActiveDiagnosticList() {
+    if (currentDiagnosticDomainObj && currentDiagnosticDomainObj.activeDiagnostics) {
+      return currentDiagnosticDomainObj.activeDiagnostics;
+    }
+    return (currentDiagnosticDomainObj && currentDiagnosticDomainObj.diagnostics) ? currentDiagnosticDomainObj.diagnostics : [];
+  }
+
   function showDiagnosticQuestion(index) {
-    if (!currentDiagnosticDomainObj || index < 0 || index >= currentDiagnosticDomainObj.diagnostics.length) return;
+    const list = getActiveDiagnosticList();
+    if (!currentDiagnosticDomainObj || index < 0 || index >= list.length) return;
     currentDiagnosticIndex = index;
 
     const cards = document.querySelectorAll('#diagnostic-questions-container .quiz-question-card');
@@ -493,7 +630,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateDiagnosticControls() {
     if (!currentDiagnosticDomainObj) return;
-    const total = currentDiagnosticDomainObj.diagnostics.length;
+    const list = getActiveDiagnosticList();
+    const total = list.length;
     const prevBtn = document.getElementById('quiz-prev-btn');
     const nextBtn = document.getElementById('quiz-next-btn');
 
@@ -504,8 +642,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const paletteBtns = document.querySelectorAll('#diagnostic-palette-container .palette-btn');
     paletteBtns.forEach((btn, idx) => {
       btn.classList.toggle('active', idx === currentDiagnosticIndex);
-      const q = currentDiagnosticDomainObj.diagnostics[idx];
-      const isAnswered = diagnosticUserAnswers[q.id] !== undefined && diagnosticUserAnswers[q.id] !== '' && diagnosticUserAnswers[q.id] !== -1;
+      const q = list[idx];
+      const isAnswered = q && diagnosticUserAnswers[q.id] !== undefined && diagnosticUserAnswers[q.id] !== '' && diagnosticUserAnswers[q.id] !== -1;
 
       if (idx === currentDiagnosticIndex) {
         btn.style.background = 'var(--accent-violet)';
@@ -543,10 +681,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!currentDiagnosticDomainObj) return;
 
-    const totalQuestions = currentDiagnosticDomainObj.diagnostics.length;
+    const list = getActiveDiagnosticList();
+    const totalQuestions = list.length;
     let unansweredCount = 0;
 
-    currentDiagnosticDomainObj.diagnostics.forEach(q => {
+    list.forEach(q => {
       if (diagnosticUserAnswers[q.id] === undefined || diagnosticUserAnswers[q.id] === '' || diagnosticUserAnswers[q.id] === -1) {
         unansweredCount++;
       }
@@ -576,8 +715,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (overlay) overlay.style.display = 'flex';
 
     try {
-      // Delegate to Supervisor: Evaluates quiz, saves score & quiz_completed: true, auto-generates roadmap
-      const result = await supervisor.startLearningJourney(window.currentDraftProfile, diagnosticUserAnswers);
+      // Attach user's declared self-assessed level along with answers
+      const quizPayload = {
+        answers: diagnosticUserAnswers,
+        declaredSelfLevel: selectedSelfLevel
+      };
+      const result = await supervisor.startLearningJourney(window.currentDraftProfile, quizPayload);
       
       // Hide loading overlay
       if (overlay) overlay.style.display = 'none';
@@ -598,17 +741,179 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =========================================================================
+  // MANDATORY STEP 1 SELF-ASSESSMENT & STEP 2 PATH SELECTION HANDLERS
+  // =========================================================================
+  let selectedSelfLevel = 'BEGINNER';
+
+  function updateDeclaredLevelUI(level) {
+    selectedSelfLevel = level;
+    const pill = document.getElementById('selected-level-pill');
+    if (pill) {
+      pill.textContent = `${level} SELECTED`;
+      pill.className = `tier-label ${level}`;
+      if (level === 'INTERMEDIATE') {
+        pill.style.background = 'rgba(245, 158, 11, 0.2)';
+        pill.style.color = '#f59e0b';
+      } else {
+        pill.style.background = '';
+        pill.style.color = '';
+      }
+    }
+    const summary = document.getElementById('declared-level-summary');
+    if (summary) {
+      summary.textContent = level;
+      summary.style.color = level === 'INTERMEDIATE' ? '#f59e0b' : (level === 'ADVANCED' ? 'var(--accent-violet)' : 'var(--accent-emerald)');
+    }
+    const tag = document.getElementById('quiz-declared-level-tag');
+    if (tag) {
+      tag.textContent = level;
+      tag.className = `tier-label ${level}`;
+      if (level === 'INTERMEDIATE') {
+        tag.style.background = 'rgba(245, 158, 11, 0.2)';
+        tag.style.color = '#f59e0b';
+      } else {
+        tag.style.background = '';
+        tag.style.color = '';
+      }
+    }
+  }
+
+  // Handle Level Card Clicks (Step 1)
+  document.querySelectorAll('.manual-level-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.manual-level-card').forEach(c => {
+        c.classList.remove('active');
+        c.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+        const icon = c.querySelector('.manual-card-icon');
+        if (icon) {
+          icon.className = 'ph ph-circle';
+          icon.style.color = 'var(--text-muted)';
+        }
+      });
+      card.classList.add('active');
+      const level = card.dataset.level || 'BEGINNER';
+
+      let borderColor = 'var(--accent-emerald)';
+      let iconColor = 'var(--accent-emerald)';
+      if (level === 'INTERMEDIATE') {
+        borderColor = '#f59e0b';
+        iconColor = '#f59e0b';
+      } else if (level === 'ADVANCED') {
+        borderColor = 'var(--accent-violet)';
+        iconColor = 'var(--accent-violet)';
+      }
+      card.style.border = `2px solid ${borderColor}`;
+      const icon = card.querySelector('.manual-card-icon');
+      if (icon) {
+        icon.className = 'ph ph-check-circle';
+        icon.style.color = iconColor;
+      }
+      updateDeclaredLevelUI(level);
+    });
+  });
+
+  // Step 2 Option A: Start Quiz Button
+  const startQuizBtn = document.getElementById('start-diagnostic-quiz-btn');
+  if (startQuizBtn) {
+    startQuizBtn.addEventListener('click', () => {
+      const quizWrapper = document.getElementById('diagnostic-quiz-wrapper');
+      if (quizWrapper) {
+        quizWrapper.style.display = 'block';
+        quizWrapper.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  }
+
+  // In-Quiz Skip Button
+  const quizSkipBtn = document.getElementById('quiz-skip-btn');
+  if (quizSkipBtn) {
+    quizSkipBtn.addEventListener('click', () => {
+      const submitBtn = document.getElementById('submit-self-assessment-btn');
+      if (submitBtn) submitBtn.click();
+    });
+  }
+
+  const submitSelfAssessmentBtn = document.getElementById('submit-self-assessment-btn');
+  if (submitSelfAssessmentBtn) {
+    submitSelfAssessmentBtn.addEventListener('click', async () => {
+      if (!currentDiagnosticDomainObj) return;
+
+      if (!window.currentDraftProfile) {
+        const activeSession = supervisor.authAgent.getActiveSession();
+        if (activeSession) {
+          window.currentDraftProfile = {
+            user_id: activeSession.user_id,
+            name: activeSession.name,
+            domainId: activeSession.chosen_domain,
+            chosen_domain: activeSession.chosen_domain,
+            timelineMonths: activeSession.timeline_months || 4,
+            dailyHours: activeSession.daily_hours || 2.0
+          };
+        }
+      }
+
+      const checkedWeakTopics = [];
+      document.querySelectorAll('.manual-weak-topic-cb:checked').forEach(cb => {
+        if (cb.dataset.topic) checkedWeakTopics.push(cb.dataset.topic);
+      });
+
+      const selfAssessmentPayload = {
+        isSelfAssessed: true,
+        skillTier: selectedSelfLevel,
+        skill_level: selectedSelfLevel,
+        weakTopicNames: checkedWeakTopics,
+        domainId: currentDiagnosticDomainObj.id,
+        domain: currentDiagnosticDomainObj.name
+      };
+
+      const overlay = document.getElementById('roadmap-loading-overlay');
+      if (overlay) overlay.style.display = 'flex';
+
+      try {
+        const result = await supervisor.startLearningJourney(window.currentDraftProfile, selfAssessmentPayload);
+        if (overlay) overlay.style.display = 'none';
+
+        renderAssessmentReport(result.evaluation, result.personalizedRoadmap);
+        await renderRoadmapView(result.personalizedRoadmap);
+        updateHeaderStats();
+
+        switchView('assessmentReport');
+      } catch (err) {
+        if (overlay) overlay.style.display = 'none';
+        console.error('Error submitting self assessment:', err);
+        alert('Error generating roadmap: ' + err.message);
+      }
+    });
+  }
+
+  // =========================================================================
   // VIEW 3: ASSESSMENT REPORT & TOPIC PROFICIENCY
   // =========================================================================
   function renderAssessmentReport(evaluation, roadmap) {
-    document.getElementById('tier-score-display').textContent = `${evaluation.scorePct}%`;
-    
+    const scoreDisplay = document.getElementById('tier-score-display');
+    const summaryDisplay = document.getElementById('tier-summary-text');
     const tierLabel = document.getElementById('tier-label-display');
+    
     tierLabel.textContent = evaluation.skillTier;
     tierLabel.className = `tier-label ${evaluation.skillTier}`;
 
-    document.getElementById('tier-summary-text').textContent = 
-      `Evaluated by Placify Quiz Performance Evaluator Agent. Score: ${evaluation.scorePct}%. Correct: ${evaluation.correctCount}/${evaluation.totalQuestions}. ${evaluation.levelDescription || ''}`;
+    if (evaluation.isSelfAssessed) {
+      if (scoreDisplay) {
+        scoreDisplay.textContent = 'SELF';
+        scoreDisplay.style.fontSize = '1.3rem';
+      }
+      if (summaryDisplay) {
+        summaryDisplay.textContent = `Baseline established via User Self-Assessment (${evaluation.skillTier}). Dynamic roadmap configured to match declared proficiency.`;
+      }
+    } else {
+      if (scoreDisplay) {
+        scoreDisplay.textContent = `${evaluation.scorePct}%`;
+        scoreDisplay.style.fontSize = '2rem';
+      }
+      if (summaryDisplay) {
+        summaryDisplay.textContent = `Evaluated by Placify Quiz Performance Evaluator Agent. Score: ${evaluation.scorePct}%. Correct: ${evaluation.correctCount}/${evaluation.totalQuestions}. ${evaluation.levelDescription || ''}`;
+      }
+    }
 
     // WEAK Topics / Gaps
     const gapContainer = document.getElementById('gaps-list-container');
@@ -1358,10 +1663,13 @@ document.addEventListener('DOMContentLoaded', () => {
           taskItem.difficulty || userLevel,
           {
             id: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+            taskId: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+            dayNumber: targetDayNum,
             title: taskItem.title,
             taskTitle: taskItem.title,
             topic: dayTopic,
             dailyTopic: dayTopic,
+            subtopic: taskItem.subtopic || taskItem.title || dayTopic,
             type: taskItem.type,
             taskType: taskItem.type,
             estimated_minutes: taskItem.estimated_minutes,
@@ -1370,7 +1678,8 @@ document.addEventListener('DOMContentLoaded', () => {
             chosen_domain: domainKey,
             user_id: userId,
             userLevel: taskItem.difficulty || userLevel,
-            difficulty: taskItem.difficulty || userLevel
+            difficulty: taskItem.difficulty || userLevel,
+            description: taskItem.practice_details || taskItem.revision_details || taskItem.summary || ''
           }
         );
 

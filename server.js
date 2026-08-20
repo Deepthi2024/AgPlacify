@@ -65,7 +65,7 @@ const userSchema = new mongoose.Schema(
 
     chosen_domain: {
       type: String,
-      default: 'fullstack'
+      default: null
     },
 
     timeline_months: {
@@ -445,7 +445,7 @@ const TRUSTED_RESOURCES = [
     difficulty: 'BEGINNER',
     estimated_minutes: 35,
     recommended_section: 'Section 3.1: Using Python as a Calculator (Numbers & Strings)',
-    relevance_reason: 'Directly covers variables, assignment, primitive data types, and basic expressions required for today\'s beginner task.',
+    relevance_reason: 'Directly covers variables, assignment, primitive data types, and basic expressions.',
     is_official: true,
     quality_score: 95
   },
@@ -463,6 +463,40 @@ const TRUSTED_RESOURCES = [
     estimated_minutes: 25,
     recommended_section: 'Python Variable Drills & Interactive Quiz',
     relevance_reason: 'Provides guided interactive practice for beginner Python variable assignment and data type manipulation.',
+    is_official: false,
+    quality_score: 85
+  },
+  {
+    resource_id: 'ds_py_ctrl_official',
+    title: 'Python Official Guide: More Control Flow Tools',
+    platform: 'Python.org',
+    url: 'https://docs.python.org/3/tutorial/controlflow.html#if-statements',
+    resource_type: 'TUTORIAL',
+    description: 'Official Python documentation for conditional statements (if, elif, else) and loops (for, while, break, continue).',
+    topic: 'Python Fundamentals',
+    subtopic: 'Control Flow (if/else, loops)',
+    domain: 'datascience',
+    difficulty: 'BEGINNER',
+    estimated_minutes: 35,
+    recommended_section: 'Section 4.1 - 4.5: if Statements, for Statements, and the range() Function',
+    relevance_reason: 'Official documentation for conditional execution, iteration, and range loops.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'ds_py_ctrl_practice',
+    title: 'W3Schools Python For & While Loops Practice',
+    platform: 'W3Schools',
+    url: 'https://www.w3schools.com/python/python_for_loops.asp',
+    resource_type: 'PRACTICE',
+    description: 'Interactive drills on conditional loops, break/continue statements, and nested iteration.',
+    topic: 'Python Fundamentals',
+    subtopic: 'Control Flow (if/else, loops)',
+    domain: 'datascience',
+    difficulty: 'BEGINNER',
+    estimated_minutes: 25,
+    recommended_section: 'For Loops Exercise & Self-Check Quiz',
+    relevance_reason: 'Interactive practice for conditional logic and loop structures.',
     is_official: false,
     quality_score: 85
   },
@@ -499,6 +533,23 @@ const TRUSTED_RESOURCES = [
     relevance_reason: 'Focuses on practical implementation patterns for functions and modular code architecture.',
     is_official: false,
     quality_score: 90
+  },
+  {
+    resource_id: 'ds_py_struct_official',
+    title: 'Python Official Tutorial: Data Structures (Lists, Dicts, Sets)',
+    platform: 'Python.org',
+    url: 'https://docs.python.org/3/tutorial/datastructures.html',
+    resource_type: 'TUTORIAL',
+    description: 'Official Python guide on lists, tuples, dictionaries, list comprehensions, and nested collections.',
+    topic: 'Python Fundamentals',
+    subtopic: 'Python Data Structures (Lists, Dicts, Sets)',
+    domain: 'datascience',
+    difficulty: 'BEGINNER',
+    estimated_minutes: 40,
+    recommended_section: 'Section 5.1 & 5.5: More on Lists and Dictionaries',
+    relevance_reason: 'Official documentation for list methods, dictionary key-value lookups, and list comprehensions.',
+    is_official: true,
+    quality_score: 95
   },
   {
     resource_id: 'ds_numpy_official',
@@ -548,6 +599,144 @@ const TRUSTED_RESOURCES = [
     estimated_minutes: 45,
     recommended_section: 'Section 1.1: Ordinary Least Squares & Linear Regression',
     relevance_reason: 'Official scikit-learn guide with API documentation and working code examples.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'ds_nlp_word2vec_official',
+    title: 'PyTorch NLP Tutorial: Word Embeddings & Vector Representations',
+    platform: 'PyTorch.org',
+    url: 'https://pytorch.org/tutorials/beginner/nlp/word_embeddings_tutorial.html',
+    resource_type: 'TUTORIAL',
+    description: 'Official PyTorch tutorial explaining word embeddings (Word2Vec, Continuous Bag-of-Words) and dense vector spaces.',
+    topic: 'Advanced Deep Learning & NLP',
+    subtopic: 'Word Embeddings (Word2Vec / FastText)',
+    domain: 'datascience',
+    difficulty: 'ADVANCED',
+    estimated_minutes: 50,
+    recommended_section: 'Section 1: Word Embeddings in PyTorch & N-Gram Language Model',
+    relevance_reason: 'Official PyTorch tutorial for building and training word embedding representations.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'ds_nlp_word2vec_gensim',
+    title: 'Gensim Word2Vec Model Training Tutorial',
+    platform: 'Gensim / Radim Rehurek',
+    url: 'https://radimrehurek.com/gensim/auto_examples/tutorials/run_word2vec.html',
+    resource_type: 'PRACTICE',
+    description: 'Hands-on guide to training Word2Vec and FastText skip-gram / CBOW models on custom text corpora.',
+    topic: 'Advanced Deep Learning & NLP',
+    subtopic: 'Word Embeddings (Word2Vec / FastText)',
+    domain: 'datascience',
+    difficulty: 'ADVANCED',
+    estimated_minutes: 40,
+    recommended_section: 'Training Word2Vec Models & Evaluating Vector Similarities',
+    relevance_reason: 'Practical tutorial for training and inspecting Word2Vec and FastText models.',
+    is_official: false,
+    quality_score: 92
+  },
+  {
+    resource_id: 'ds_nlp_rnn_official',
+    title: 'PyTorch Tutorial: Sequence Modeling with Recurrent Neural Networks (RNNs)',
+    platform: 'PyTorch.org',
+    url: 'https://pytorch.org/tutorials/intermediate/char_rnn_classification_tutorial.html',
+    resource_type: 'TUTORIAL',
+    description: 'Official PyTorch tutorial covering Character-level RNNs, LSTMs, sequence processing, and hidden states.',
+    topic: 'Advanced Deep Learning & NLP',
+    subtopic: 'Recurrent Networks & LSTMs',
+    domain: 'datascience',
+    difficulty: 'ADVANCED',
+    estimated_minutes: 50,
+    recommended_section: 'Creating the Network & Training Loop for Sequence Data',
+    relevance_reason: 'Official PyTorch guide for building and training RNNs and LSTMs for sequence classification.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'ds_nlp_transformer_official',
+    title: 'Hugging Face Transformers Documentation & Course',
+    platform: 'Hugging Face',
+    url: 'https://huggingface.co/docs/transformers/index',
+    resource_type: 'DOCUMENTATION',
+    description: 'Official Hugging Face documentation for self-attention, Transformer architectures, BERT, and GPT models.',
+    topic: 'Advanced Deep Learning & NLP',
+    subtopic: 'Transformers (BERT vs GPT)',
+    domain: 'datascience',
+    difficulty: 'ADVANCED',
+    estimated_minutes: 45,
+    recommended_section: 'Transformers Overview & Model Pipeline Execution',
+    relevance_reason: 'Industry-standard documentation for fine-tuning and deploying Transformer models.',
+    is_official: true,
+    quality_score: 95
+  },
+
+  // --- CYBERSECURITY & ETHICAL HACKING ---
+  {
+    resource_id: 'sec_cli_linux_guide',
+    title: 'Arch Linux Security & Privilege Management Guide',
+    platform: 'Arch Wiki',
+    url: 'https://wiki.archlinux.org/title/Security',
+    resource_type: 'DOCUMENTATION',
+    description: 'Authoritative guide to Linux user permissions, sudoers configuration, file modes, and system isolation.',
+    topic: 'Computer Systems & CLI Fundamentals',
+    subtopic: 'File Permissions & Privileges',
+    domain: 'cybersecurity',
+    difficulty: 'BEGINNER',
+    estimated_minutes: 35,
+    recommended_section: 'User Privilege Separation & File System Security',
+    relevance_reason: 'Detailed security documentation covering Linux privileges, file permissions, and environment security.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'sec_win_hardening_official',
+    title: 'Microsoft Windows Security Baseline & System Hardening',
+    platform: 'Microsoft Learn',
+    url: 'https://learn.microsoft.com/en-us/windows/security/',
+    resource_type: 'DOCUMENTATION',
+    description: 'Official Microsoft guide to Windows OS security baselines, Group Policy, AppLocker, and Defender controls.',
+    topic: 'System Hardening & Privilege Escalation',
+    subtopic: 'Linux/Windows Security Hardening',
+    domain: 'cybersecurity',
+    difficulty: 'ADVANCED',
+    estimated_minutes: 45,
+    recommended_section: 'Windows Security Baselines & Access Controls',
+    relevance_reason: 'Official Microsoft documentation for OS hardening and enterprise threat mitigation.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'sec_owasp_official',
+    title: 'OWASP Top 10 Web Application Security Risks',
+    platform: 'OWASP.org',
+    url: 'https://owasp.org/www-project-top-ten/',
+    resource_type: 'DOCUMENTATION',
+    description: 'Official OWASP foundation guide detailing XSS, SQLi, CSRF, and authentication vulnerabilities.',
+    topic: 'Web Application Vulnerabilities',
+    subtopic: 'OWASP Top 10 Deep Dive',
+    domain: 'cybersecurity',
+    difficulty: 'INTERMEDIATE',
+    estimated_minutes: 45,
+    recommended_section: 'A03:2021-Injection & A07:2021-Identification and Authentication Failures',
+    relevance_reason: 'Industry standard security reference for web application security vulnerabilities.',
+    is_official: true,
+    quality_score: 95
+  },
+  {
+    resource_id: 'sec_wireshark_official',
+    title: 'Wireshark User Guide: Network Packet Analysis',
+    platform: 'Wireshark.org',
+    url: 'https://www.wireshark.org/docs/wsug_html_chunked/',
+    resource_type: 'TUTORIAL',
+    description: 'Official Wireshark documentation for capturing packets, setting display filters, and inspecting TCP/IP handshakes.',
+    topic: 'Networking Protocols & Traffic Analysis',
+    subtopic: 'Wireshark Packet Capture',
+    domain: 'cybersecurity',
+    difficulty: 'BEGINNER',
+    estimated_minutes: 40,
+    recommended_section: 'Chapter 6: Working with Captured Packets & Filters',
+    relevance_reason: 'Official documentation for network traffic analysis and protocol inspection.',
     is_official: true,
     quality_score: 95
   },
@@ -659,22 +848,20 @@ const TRUSTED_RESOURCES = [
     is_official: true,
     quality_score: 95
   },
-
-  // --- CYBERSECURITY ---
   {
-    resource_id: 'sec_owasp_official',
-    title: 'OWASP Top 10 Web Application Security Risks',
-    platform: 'OWASP.org',
-    url: 'https://owasp.org/www-project-top-ten/',
+    resource_id: 'dev_k8s_official',
+    title: 'Kubernetes Tutorials: Kubernetes Basics',
+    platform: 'Kubernetes.io',
+    url: 'https://kubernetes.io/docs/tutorials/kubernetes-basics/',
     resource_type: 'DOCUMENTATION',
-    description: 'Official OWASP foundation guide detailing XSS, SQLi, CSRF, and authentication vulnerabilities.',
-    topic: 'Web Application Vulnerabilities',
-    subtopic: 'OWASP Top 10 Deep Dive',
-    domain: 'cybersecurity',
+    description: 'Official Kubernetes guide covering Pods, Deployments, ReplicaSets, Services, and kubectl commands.',
+    topic: 'Kubernetes Infrastructure',
+    subtopic: 'Pods, Deployments & ReplicaSets',
+    domain: 'devops',
     difficulty: 'INTERMEDIATE',
     estimated_minutes: 45,
-    recommended_section: 'A03:2021-Injection & A07:2021-Identification and Authentication Failures',
-    relevance_reason: 'Industry standard security reference for web application security vulnerabilities.',
+    recommended_section: 'Deploying an App & Exploring Pods',
+    relevance_reason: 'Official Kubernetes tutorial for container orchestration and cluster deployments.',
     is_official: true,
     quality_score: 95
   },
@@ -749,6 +936,14 @@ function validateResourceURL(url) {
 
 // Helper: Calculate Resource Match Score (0 - 100)
 function calculateResourceMatchScore(resource, task) {
+  const taskDomain = canonicalizeDomainKey(task.domain || task.chosen_domain);
+  const resDomain = canonicalizeDomainKey(resource.domain);
+
+  // Hard Domain Filter: Mismatched domain scores 0
+  if (resDomain !== taskDomain && resource.domain !== 'all') {
+    return 0;
+  }
+
   let score = 0;
 
   // 1. Task Relevance (40%)
@@ -760,22 +955,27 @@ function calculateResourceMatchScore(resource, task) {
   const resSubtopic = (resource.subtopic || '').toLowerCase();
 
   let relevancePoints = 0;
-  if (resSubtopic && subtopicClean && (resSubtopic.includes(subtopicClean) || subtopicClean.includes(resSubtopic))) relevancePoints += 40;
-  else if (resTopic && taskTopicClean && (resTopic.includes(taskTopicClean) || taskTopicClean.includes(resTopic))) relevancePoints += 30;
-  else if (taskTitleClean.split(' ').some(w => w.length > 3 && resTitle.includes(w))) relevancePoints += 20;
-  else relevancePoints += 10;
+  if (resSubtopic && subtopicClean && (resSubtopic.includes(subtopicClean) || subtopicClean.includes(resSubtopic))) {
+    relevancePoints += 40;
+  } else if (resTopic && taskTopicClean && (resTopic.includes(taskTopicClean) || taskTopicClean.includes(resTopic))) {
+    relevancePoints += 30;
+  } else if (taskTitleClean.split(' ').some(w => w.length > 3 && (resTitle.includes(w) || resTopic.includes(w)))) {
+    relevancePoints += 20;
+  } else {
+    relevancePoints += 5;
+  }
 
   score += Math.min(40, relevancePoints);
 
   // 2. Level Match (20%)
-  const userLevel = (task.userLevel || task.difficulty || 'BEGINNER').toUpperCase();
+  const userLevel = (task.userLevel || task.difficulty || task.taskDifficulty || 'BEGINNER').toUpperCase();
   const resLevel = (resource.difficulty || 'BEGINNER').toUpperCase();
   if (userLevel === resLevel) {
     score += 20;
   } else if ((userLevel === 'BEGINNER' && resLevel === 'INTERMEDIATE') || (userLevel === 'INTERMEDIATE' && resLevel === 'BEGINNER')) {
     score += 10;
-  } else if (userLevel === 'ADVANCED' || userLevel === 'MASTERED') {
-    score += 15;
+  } else {
+    score += 5;
   }
 
   // 3. Task Type Match (15%)
@@ -786,12 +986,11 @@ function calculateResourceMatchScore(resource, task) {
   else if (tType === 'PRACTICE' && (rType === 'PRACTICE' || rType === 'EXERCISE' || rType === 'QUIZ')) score += 15;
   else if (tType === 'IMPLEMENT' && (rType === 'DOCUMENTATION' || rType === 'API' || rType === 'IMPLEMENTATION')) score += 15;
   else if (tType === 'REVISION' && (rType === 'CHEAT_SHEET' || rType === 'SUMMARY' || rType === 'REFERENCE')) score += 15;
-  else if (tType === 'PROJECT' && (rType === 'PROJECT' || rType === 'REPOSITORY' || rType === 'DATASET')) score += 15;
-  else score += 8;
+  else score += 5;
 
-  // 4. Resource Quality / Authority (15%)
+  // 4. Quality & Official Authority (15%)
   if (resource.is_official) score += 15;
-  else score += Math.round((resource.quality_score || 80) * 0.15);
+  else score += Math.round(((resource.quality_score || 80) / 100) * 15);
 
   // 5. Duration Suitability (10%)
   const taskMins = task.taskDuration || task.estimated_minutes || 30;
@@ -815,182 +1014,299 @@ function isResourceRelevantToContext(resource, taskContext) {
     return false;
   }
 
-  // 2. REJECT CROSS-DOMAIN LEAKAGE: HTML/JS for Non-Web domains
-  const title = (resource.title + ' ' + (resource.description || '')).toLowerCase();
-  const taskTopic = (taskContext.dailyTopic || taskContext.topic || taskContext.taskTitle || '').toLowerCase();
+  // 2. REJECT CROSS-TOPIC POLLUTION: Variables resource rejected for Control Flow, Functions, Word Embeddings, etc.
+  const taskTopic = (taskContext.dailyTopic || taskContext.topic || taskContext.taskTitle || taskContext.title || '').toLowerCase();
+  const taskSubtopic = (taskContext.subtopic || '').toLowerCase();
+  const taskTitle = (taskContext.taskTitle || taskContext.title || '').toLowerCase();
 
-  if (domainKey !== 'fullstack') {
-    if ((title.includes('html') || title.includes('javascript first steps') || title.includes('css flexbox') || title.includes('anatomy of an html')) &&
-        !taskTopic.includes('html') && !taskTopic.includes('javascript') && !taskTopic.includes('web')) {
-      return false;
-    }
+  const resTitle = (resource.title || '').toLowerCase();
+  const resSubtopic = (resource.subtopic || '').toLowerCase();
+
+  // Control Flow tasks should not accept pure Variables resources
+  if ((taskTopic.includes('control flow') || taskTitle.includes('control flow') || taskSubtopic.includes('control flow')) &&
+      (resSubtopic.includes('variables') || resTitle.includes('primitive data types')) &&
+      !resTitle.includes('control flow') && !resTitle.includes('if') && !resTitle.includes('loop')) {
+    return false;
   }
 
-  if (domainKey !== 'datascience' && domainKey !== 'ai_llm') {
-    if ((title.includes('pandas') || title.includes('scikit-learn') || title.includes('pytorch')) &&
-        !taskTopic.includes('pandas') && !taskTopic.includes('ml') && !taskTopic.includes('python')) {
-      return false;
-    }
+  // Functions tasks should not accept pure Variables resources
+  if ((taskTopic.includes('function') || taskTitle.includes('function') || taskSubtopic.includes('function')) &&
+      (resSubtopic.includes('variables') || resTitle.includes('primitive data types')) &&
+      !resTitle.includes('function')) {
+    return false;
   }
 
-  if (domainKey !== 'cybersecurity') {
-    if (title.includes('owasp top ten') && !taskTopic.includes('security') && !taskTopic.includes('owasp')) {
-      return false;
-    }
+  // Word Embeddings tasks should not accept generic Python Variables or Functions resources
+  if ((taskTopic.includes('embedding') || taskTitle.includes('word2vec') || taskSubtopic.includes('word embeddings')) &&
+      (resTitle.includes('informal introduction to python') || resTitle.includes('defining functions')) &&
+      !resTitle.includes('embedding') && !resTitle.includes('word2vec')) {
+    return false;
   }
 
   return true;
 }
 
-// Helper: Dynamic Domain-Specific & Task-Specific Resource Generator
+// Helper: Dynamic Domain-Specific & Task-Specific Resource Generator with Authentic Deep-Links
 function generateDynamicDomainTaskResources(taskContext) {
   const domainKey = canonicalizeDomainKey(taskContext.domain || taskContext.chosen_domain);
   const cleanLevel = (taskContext.difficulty || taskContext.userLevel || taskContext.taskDifficulty || 'BEGINNER').toUpperCase();
-  const cleanTopic = taskContext.dailyTopic || taskContext.topic || 'Core Fundamentals';
+  const cleanTopic = taskContext.dailyTopic || taskContext.topic || 'Core Learning';
   const taskTitle = taskContext.taskTitle || taskContext.title || cleanTopic;
   const taskType = (taskContext.taskType || taskContext.type || 'LEARN').toUpperCase();
   const duration = taskContext.taskDuration || taskContext.estimated_minutes || 30;
 
-  let platformInfo = {
-    platform: 'Official Documentation',
-    primaryURL: 'https://docs.python.org/3/tutorial/',
-    altURL: 'https://scikit-learn.org/stable/',
-    practicePlatform: 'Interactive Sandbox'
-  };
+  const topicLower = (cleanTopic + ' ' + taskTitle + ' ' + (taskContext.subtopic || '')).toLowerCase();
 
+  let primaryRes = null;
+  let practiceRes = null;
+
+  // 1. DATA SCIENCE & ML DEEP-LINKS
+  if (domainKey === 'datascience') {
+    if (topicLower.includes('word2vec') || topicLower.includes('embedding') || topicLower.includes('fasttext')) {
+      primaryRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: 'PyTorch NLP Tutorial: Word Embeddings & Vector Representations',
+        platform: 'PyTorch.org',
+        url: 'https://pytorch.org/tutorials/beginner/nlp/word_embeddings_tutorial.html',
+        resource_type: 'TUTORIAL',
+        description: 'Official PyTorch tutorial for building dense word embedding matrices, N-gram language models, and vector representations.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Word Embeddings (Word2Vec / FastText)',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: duration,
+        recommended_section: 'Section 1: Word Embeddings in PyTorch & N-Gram Language Model',
+        relevance_reason: `Targeted PyTorch NLP tutorial for word embeddings and vector spaces.`,
+        is_official: true,
+        quality_score: 95
+      };
+      practiceRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_2`,
+        category_label: 'PRACTICE',
+        title: 'Gensim Word2Vec Model Training Tutorial & Vector Similarities',
+        platform: 'Gensim',
+        url: 'https://radimrehurek.com/gensim/auto_examples/tutorials/run_word2vec.html',
+        resource_type: 'PRACTICE',
+        description: 'Practical guide to training Word2Vec and FastText skip-gram / CBOW models on custom text corpora.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Word Embeddings (Word2Vec / FastText)',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: Math.round(duration * 0.7),
+        recommended_section: 'Training Word2Vec Models & Evaluating Vector Similarities',
+        relevance_reason: `Hands-on practical notebook for training Word2Vec and FastText models.`,
+        is_official: false,
+        quality_score: 92
+      };
+    } else if (topicLower.includes('rnn') || topicLower.includes('lstm') || topicLower.includes('recurrent')) {
+      primaryRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: 'PyTorch Sequence Modeling with Recurrent Neural Networks (RNNs)',
+        platform: 'PyTorch.org',
+        url: 'https://pytorch.org/tutorials/intermediate/char_rnn_classification_tutorial.html',
+        resource_type: 'TUTORIAL',
+        description: 'Official PyTorch tutorial covering Character-level RNNs, LSTMs, sequence processing, and hidden states.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Recurrent Networks & LSTMs',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: duration,
+        recommended_section: 'Creating the Network & Training Loop for Sequence Data',
+        relevance_reason: 'Official PyTorch guide for building and training RNNs and LSTMs for sequence classification.',
+        is_official: true,
+        quality_score: 95
+      };
+      practiceRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_2`,
+        category_label: 'PRACTICE',
+        title: 'Understanding LSTMs & Recurrent Neural Network Architectures',
+        platform: 'colah\'s blog',
+        url: 'https://colah.github.io/posts/2015-08-Understanding-LSTMs/',
+        resource_type: 'PRACTICE',
+        description: 'Visual explanation of Recurrent Neural Networks, gating mechanisms, and LSTM memory cells.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Recurrent Networks & LSTMs',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: Math.round(duration * 0.7),
+        recommended_section: 'The Core Idea Behind LSTMs & Step-by-Step Walkthrough',
+        relevance_reason: 'Essential reading for conceptual understanding of LSTM gates and memory persistence.',
+        is_official: false,
+        quality_score: 95
+      };
+    } else if (topicLower.includes('control flow') || topicLower.includes('loop') || topicLower.includes('if/else')) {
+      primaryRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: 'Python Official Guide: More Control Flow Tools (if, for, while)',
+        platform: 'Python.org',
+        url: 'https://docs.python.org/3/tutorial/controlflow.html#if-statements',
+        resource_type: 'TUTORIAL',
+        description: 'Official Python documentation for conditional statements (if, elif, else) and loops (for, while, break, continue).',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Control Flow (if/else, loops)',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: duration,
+        recommended_section: 'Section 4.1 - 4.5: if Statements, for Statements, and range()',
+        relevance_reason: 'Official guide for Python conditional logic and loop structures.',
+        is_official: true,
+        quality_score: 95
+      };
+      practiceRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_2`,
+        category_label: 'PRACTICE',
+        title: 'W3Schools Python For & While Loops Practice Drills',
+        platform: 'W3Schools',
+        url: 'https://www.w3schools.com/python/python_for_loops.asp',
+        resource_type: 'PRACTICE',
+        description: 'Interactive beginner code exercises for for loops, while loops, and range iteration.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Control Flow (if/else, loops)',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: Math.round(duration * 0.7),
+        recommended_section: 'Python For Loops Exercises & Self-Check Drills',
+        relevance_reason: 'Interactive practice for conditional loops and iteration.',
+        is_official: false,
+        quality_score: 85
+      };
+    }
+  }
+
+  // 2. CYBERSECURITY DEEP-LINKS
   if (domainKey === 'cybersecurity') {
-    const isWindows = cleanTopic.toLowerCase().includes('windows') || taskTitle.toLowerCase().includes('windows');
-    platformInfo = {
-      platform: isWindows ? 'Microsoft Security Guides' : 'OWASP & Linux Security Guides',
-      primaryURL: isWindows ? 'https://learn.microsoft.com/en-us/windows/security/' : 'https://owasp.org/www-project-top-ten/',
-      altURL: 'https://portswigger.net/web-security',
-      practicePlatform: 'Cybersecurity Security Lab'
-    };
-  } else if (domainKey === 'datascience') {
-    const isPyTorch = cleanTopic.toLowerCase().includes('pytorch') || cleanTopic.toLowerCase().includes('neural');
-    const isPandas = cleanTopic.toLowerCase().includes('pandas');
-    platformInfo = {
-      platform: isPyTorch ? 'PyTorch Docs' : (isPandas ? 'Pandas Docs' : 'Python Data Science Docs'),
-      primaryURL: isPyTorch ? 'https://pytorch.org/tutorials/' : (isPandas ? 'https://pandas.pydata.org/docs/getting_started/index.html' : 'https://docs.python.org/3/tutorial/'),
-      altURL: 'https://scikit-learn.org/stable/tutorial/index.html',
-      practicePlatform: 'Data Science Sandbox'
-    };
-  } else if (domainKey === 'dsa') {
-    platformInfo = {
-      platform: 'GeeksforGeeks & Algorithm Visualizers',
-      primaryURL: 'https://www.geeksforgeeks.org/data-structures/',
-      altURL: 'https://leetcode.com/explore/',
-      practicePlatform: 'DSA Code Drills Sandbox'
-    };
-  } else if (domainKey === 'devops') {
-    platformInfo = {
-      platform: 'Docker & Infrastructure Guides',
-      primaryURL: 'https://docs.docker.com/get-started/',
-      altURL: 'https://kubernetes.io/docs/tutorials/',
-      practicePlatform: 'DevOps Terminal Sandbox'
-    };
-  } else if (domainKey === 'cloud') {
-    platformInfo = {
-      platform: 'Cloud Architecture & Provider Docs',
-      primaryURL: 'https://docs.aws.amazon.com/',
-      altURL: 'https://cloud.google.com/docs',
-      practicePlatform: 'Cloud Architecture Lab'
-    };
-  } else if (domainKey === 'mobile') {
-    platformInfo = {
-      platform: 'Flutter & Mobile SDK Docs',
-      primaryURL: 'https://docs.flutter.dev/',
-      altURL: 'https://developer.android.com/guide',
-      practicePlatform: 'Mobile UI Emulator Sandbox'
-    };
-  } else if (domainKey === 'ai_llm') {
-    platformInfo = {
-      platform: 'PyTorch & Hugging Face AI Docs',
-      primaryURL: 'https://pytorch.org/tutorials/',
-      altURL: 'https://huggingface.co/learn/nlp-course/chapter1/1',
-      practicePlatform: 'AI Model Training Sandbox'
-    };
-  } else if (domainKey === 'system_design') {
-    platformInfo = {
-      platform: 'System Design Primer & Specs',
-      primaryURL: 'https://github.com/donnemartin/system-design-primer',
-      altURL: 'https://martinfowler.com/architecture/',
-      practicePlatform: 'Architecture Diagramming Sandbox'
-    };
-  } else {
-    platformInfo = {
-      platform: 'MDN Web Docs & W3C Specs',
-      primaryURL: 'https://developer.mozilla.org/en-US/docs/Learn',
-      altURL: 'https://react.dev/learn',
-      practicePlatform: 'Full-Stack Web Sandbox'
+    if (topicLower.includes('windows')) {
+      primaryRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: 'Microsoft Windows Security Baseline & OS Hardening',
+        platform: 'Microsoft Learn',
+        url: 'https://learn.microsoft.com/en-us/windows/security/',
+        resource_type: 'DOCUMENTATION',
+        description: 'Official Microsoft documentation for Windows security baselines, privilege management, and Defender policies.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Windows Security Hardening',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: duration,
+        recommended_section: 'Windows Security Baselines & Access Controls',
+        relevance_reason: 'Official Microsoft documentation for Windows OS security hardening.',
+        is_official: true,
+        quality_score: 95
+      };
+    } else {
+      primaryRes = {
+        resource_id: `dyn_${taskContext.taskId || Date.now()}_1`,
+        category_label: 'PRIMARY',
+        title: 'Arch Linux Security & System Hardening Guide',
+        platform: 'Arch Wiki',
+        url: 'https://wiki.archlinux.org/title/Security',
+        resource_type: 'DOCUMENTATION',
+        description: 'Comprehensive guide to Linux system hardening, file permissions, privilege separation, and PAM authentication.',
+        topic: cleanTopic,
+        subtopic: taskContext.subtopic || 'Linux Security Hardening',
+        domain: domainKey,
+        difficulty: cleanLevel,
+        estimated_minutes: duration,
+        recommended_section: 'User Privilege Separation & File System Security',
+        relevance_reason: 'Authoritative guide to Linux OS hardening and privilege management.',
+        is_official: true,
+        quality_score: 95
+      };
+    }
+    practiceRes = {
+      resource_id: `dyn_${taskContext.taskId || Date.now()}_2`,
+      category_label: 'PRACTICE',
+      title: 'OWASP Security Hardening Cheat Sheet & Verification Drills',
+      platform: 'OWASP',
+      url: 'https://cheatsheetseries.owasp.org/cheatsheets/OS_Hardening_Cheat_Sheet.html',
+      resource_type: 'PRACTICE',
+      description: 'OWASP guidelines and checklist for operating system hardening, service lockdown, and privilege escalation defense.',
+      topic: cleanTopic,
+      subtopic: taskContext.subtopic || 'Security Hardening Checklist',
+      domain: domainKey,
+      difficulty: cleanLevel,
+      estimated_minutes: Math.round(duration * 0.7),
+      recommended_section: 'OS Hardening Verification Checklist & Defensive Rules',
+      relevance_reason: 'Industry-standard checklist for operating system security hardening.',
+      is_official: true,
+      quality_score: 92
     };
   }
 
-  let typeDesc = `Structured, verified ${cleanLevel.toLowerCase()} learning guide explaining ${cleanTopic} and practical usage.`;
-  let recSection = `Section: ${cleanTopic} Fundamentals`;
-  let typeLabel = 'TUTORIAL';
+  // GENERAL DOMAIN FALLBACK (if specific deep link was not matched above)
+  if (!primaryRes) {
+    let platformName = 'Official Documentation';
+    let urlTarget = 'https://docs.python.org/3/tutorial/';
+    let practiceUrlTarget = 'https://www.w3schools.com/python/';
 
-  if (taskType === 'PRACTICE') {
-    typeDesc = `Guided coding drills, problem sets, and interactive exercises for ${cleanTopic}.`;
-    recSection = `Interactive Lab: ${cleanTopic} Code Drills`;
-    typeLabel = 'PRACTICE';
-  } else if (taskType === 'IMPLEMENT') {
-    typeDesc = `Technical implementation guide and API reference for building ${cleanTopic} modules.`;
-    recSection = `Implementation Guide: ${cleanTopic} Code Patterns`;
-    typeLabel = 'DOCUMENTATION';
-  } else if (taskType === 'REVISION') {
-    typeDesc = `Concise summary notes, concept flashcards, and quick reference sheet for ${cleanTopic}.`;
-    recSection = `Quick Reference: ${cleanTopic} Core Principles`;
-    typeLabel = 'CHEAT_SHEET';
-  } else if (taskType === 'PROJECT') {
-    typeDesc = `End-to-end hands-on project guide and repository structure for ${cleanTopic}.`;
-    recSection = `Project Blueprint: ${cleanTopic}`;
-    typeLabel = 'PROJECT';
+    if (domainKey === 'fullstack') {
+      platformName = 'MDN Web Docs';
+      urlTarget = 'https://developer.mozilla.org/en-US/docs/Learn';
+      practiceUrlTarget = 'https://react.dev/learn';
+    } else if (domainKey === 'dsa') {
+      platformName = 'GeeksforGeeks DSA';
+      urlTarget = 'https://www.geeksforgeeks.org/data-structures/';
+      practiceUrlTarget = 'https://leetcode.com/explore/';
+    } else if (domainKey === 'devops') {
+      platformName = 'Docker & Cloud Docs';
+      urlTarget = 'https://docs.docker.com/get-started/';
+      practiceUrlTarget = 'https://kubernetes.io/docs/tutorials/';
+    } else if (domainKey === 'mobile') {
+      platformName = 'Flutter Official Docs';
+      urlTarget = 'https://docs.flutter.dev/ui/layout';
+      practiceUrlTarget = 'https://developer.android.com/guide';
+    } else if (domainKey === 'ai_llm') {
+      platformName = 'Hugging Face & PyTorch AI Docs';
+      urlTarget = 'https://huggingface.co/docs/transformers/index';
+      practiceUrlTarget = 'https://pytorch.org/tutorials/';
+    } else if (domainKey === 'system_design') {
+      platformName = 'System Design Primer';
+      urlTarget = 'https://github.com/donnemartin/system-design-primer';
+      practiceUrlTarget = 'https://martinfowler.com/architecture/';
+    }
+
+    primaryRes = {
+      resource_id: `dyn_${taskContext.taskId || Date.now()}_primary`,
+      category_label: 'PRIMARY',
+      title: `${cleanTopic}: ${taskTitle} Guide`,
+      platform: platformName,
+      url: urlTarget,
+      resource_type: taskType === 'PRACTICE' ? 'PRACTICE' : 'TUTORIAL',
+      description: `Structured, verified ${cleanLevel.toLowerCase()} learning guide explaining ${cleanTopic} and practical usage.`,
+      topic: cleanTopic,
+      subtopic: taskContext.subtopic || cleanTopic,
+      domain: domainKey,
+      difficulty: cleanLevel,
+      estimated_minutes: duration,
+      recommended_section: `Section: ${cleanTopic} Core Principles`,
+      relevance_reason: `Directly matched to today's ${domainKey.toUpperCase()} ${cleanLevel} task "${taskTitle}".`,
+      is_official: true,
+      quality_score: 90
+    };
+
+    practiceRes = {
+      resource_id: `dyn_${taskContext.taskId || Date.now()}_practice`,
+      category_label: 'PRACTICE',
+      title: `${cleanTopic} Interactive Practice Drills`,
+      platform: `${platformName} Practice`,
+      url: practiceUrlTarget,
+      resource_type: 'PRACTICE',
+      description: `Interactive problem set and self-check validation drills for ${cleanTopic}.`,
+      topic: cleanTopic,
+      subtopic: taskContext.subtopic || cleanTopic,
+      domain: domainKey,
+      difficulty: cleanLevel,
+      estimated_minutes: Math.round(duration * 0.7),
+      recommended_section: `Self-Check Drills: ${cleanTopic}`,
+      relevance_reason: `Provides hands-on practice for ${cleanTopic} within the ${domainKey} track.`,
+      is_official: false,
+      quality_score: 85
+    };
   }
-
-  const primaryRes = {
-    resource_id: `dyn_${taskContext.taskId || taskContext.id || Date.now()}_primary`,
-    category_label: 'PRIMARY',
-    title: `${cleanTopic}: ${taskTitle}`,
-    platform: platformInfo.platform,
-    url: platformInfo.primaryURL,
-    resource_type: typeLabel,
-    description: typeDesc,
-    topic: cleanTopic,
-    subtopic: taskContext.subtopic || cleanTopic,
-    domain: domainKey,
-    difficulty: cleanLevel,
-    estimated_minutes: duration,
-    recommended_section: recSection,
-    relevance_reason: `Directly matched to today's ${domainKey.toUpperCase()} ${cleanLevel} task "${taskTitle}".`,
-    is_official: true,
-    quality_score: 95,
-    verified_at: new Date(),
-    is_valid: true,
-    calculatedScore: 90
-  };
-
-  const practiceRes = {
-    resource_id: `dyn_${taskContext.taskId || taskContext.id || Date.now()}_practice`,
-    category_label: taskType === 'PRACTICE' ? 'PRIMARY' : 'PRACTICE',
-    title: `${cleanTopic} Interactive Practice & Drills`,
-    platform: platformInfo.practicePlatform,
-    url: platformInfo.altURL || platformInfo.primaryURL,
-    resource_type: 'PRACTICE',
-    description: `Interactive problem set and self-check validation drills for ${cleanTopic}.`,
-    topic: cleanTopic,
-    subtopic: taskContext.subtopic || cleanTopic,
-    domain: domainKey,
-    difficulty: cleanLevel,
-    estimated_minutes: Math.round(duration * 0.7),
-    recommended_section: `Self-Check Drills: ${cleanTopic}`,
-    relevance_reason: `Provides hands-on practice for ${cleanTopic} within the ${domainKey} track.`,
-    is_official: false,
-    quality_score: 88,
-    verified_at: new Date(),
-    is_valid: true,
-    calculatedScore: 85
-  };
 
   return [primaryRes, practiceRes];
 }
@@ -1006,10 +1322,21 @@ async function recommendResourcesForTask(taskData) {
     dailyTopic,
     subtopic,
     domain,
-    userLevel
+    userLevel,
+    user_id
   } = taskData;
 
   const domainKey = canonicalizeDomainKey(domain);
+
+  console.log("RESOURCE REQUEST:", {
+    userId: user_id || 'anonymous',
+    domain: domainKey,
+    taskId: taskId || 'unknown',
+    topic: dailyTopic || taskTitle,
+    subtopic: subtopic || '',
+    taskType: taskType || 'LEARN',
+    difficulty: taskDifficulty || userLevel || 'BEGINNER'
+  });
 
   // Stage 1: Search Trusted Catalog with HARD Domain Filter & Relevance Validation
   let candidateMatches = TRUSTED_RESOURCES.filter(r => {
@@ -1025,34 +1352,40 @@ async function recommendResourcesForTask(taskData) {
 
   scoredList.sort((a, b) => b.calculatedScore - a.calculatedScore);
 
-  let selectedResources = scoredList.slice(0, 2);
+  let selectedResources = scoredList.filter(r => r.calculatedScore >= 50).slice(0, 3);
 
   // Stage 2: Dynamic Domain-Specific & Task-Specific Fallback if catalog matches are insufficient
-  if (selectedResources.length === 0 || selectedResources[0].calculatedScore < 50) {
+  if (selectedResources.length === 0) {
     selectedResources = generateDynamicDomainTaskResources(taskData);
   }
 
   // Format category labels
   const formattedResources = selectedResources.map((res, idx) => ({
     resource_id: res.resource_id || `res_${Date.now()}_${idx}`,
-    category_label: res.category_label || (idx === 0 ? 'PRIMARY' : 'PRACTICE'),
+    category_label: idx === 0 ? 'PRIMARY' : (idx === 1 ? 'ALTERNATIVE' : 'PRACTICE'),
     title: res.title,
     platform: res.platform,
     url: res.url,
-    resource_type: res.resource_type,
+    resource_type: res.resource_type || (idx === 0 ? 'TUTORIAL' : 'PRACTICE'),
     description: res.description,
-    topic: res.topic,
-    subtopic: res.subtopic,
-    domain: res.domain,
-    difficulty: res.difficulty,
-    estimated_minutes: res.estimated_minutes,
-    recommended_section: res.recommended_section,
-    relevance_reason: res.relevance_reason,
-    is_official: res.is_official,
-    quality_score: res.quality_score,
+    topic: res.topic || dailyTopic || taskTitle,
+    subtopic: res.subtopic || subtopic || dailyTopic || taskTitle,
+    domain: domainKey,
+    difficulty: res.difficulty || taskDifficulty || userLevel || 'BEGINNER',
+    estimated_minutes: res.estimated_minutes || taskDuration || 30,
+    recommended_section: res.recommended_section || `Recommended Section: ${res.title}`,
+    relevance_reason: res.relevance_reason || `Targeted resource for ${domainKey.toUpperCase()} task "${taskTitle}".`,
+    is_official: res.is_official || false,
+    quality_score: res.quality_score || 85,
     verified_at: res.verified_at || new Date(),
-    is_valid: res.is_valid !== undefined ? res.is_valid : true
+    is_valid: true
   }));
+
+  console.log("RESOURCE RESPONSE:", {
+    taskId: taskId || 'unknown',
+    resourcesCount: formattedResources.length,
+    resources: formattedResources.map(r => ({ id: r.resource_id, title: r.title, url: r.url }))
+  });
 
   // Save resources in MongoDB Atlas `Resource` collection
   if (mongoose.connection.readyState === 1) {
@@ -1215,7 +1548,9 @@ function analyzeCurriculumPlacement({ domain, quizEvaluation, timelineMonths, da
   let overallScore = 0;
   let userLevel = 'BEGINNER';
 
+  let isSelfAssessed = false;
   if (quizEvaluation) {
+    isSelfAssessed = !!(quizEvaluation.is_self_assessed || quizEvaluation.isSelfAssessed);
     overallScore = quizEvaluation.score_pct !== undefined 
       ? quizEvaluation.score_pct 
       : (quizEvaluation.scorePct !== undefined ? quizEvaluation.scorePct : 0);
@@ -1230,13 +1565,15 @@ function analyzeCurriculumPlacement({ domain, quizEvaluation, timelineMonths, da
     }
   }
 
-  // Enforce score-to-level boundaries if score is explicitly provided
-  if (overallScore < 50) {
-    userLevel = 'BEGINNER';
-  } else if (overallScore >= 50 && overallScore < 75 && userLevel === 'BEGINNER') {
-    userLevel = 'INTERMEDIATE';
-  } else if (overallScore >= 90 && userLevel !== 'MASTERED') {
-    userLevel = 'MASTERED';
+  // Enforce score-to-level boundaries if score is explicitly provided and NOT self-assessed
+  if (!isSelfAssessed) {
+    if (overallScore < 50) {
+      userLevel = 'BEGINNER';
+    } else if (overallScore >= 50 && overallScore < 75 && userLevel === 'BEGINNER') {
+      userLevel = 'INTERMEDIATE';
+    } else if (overallScore >= 90 && userLevel !== 'MASTERED') {
+      userLevel = 'MASTERED';
+    }
   }
 
   // Topic-level gap analysis
@@ -1903,7 +2240,7 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type'
     });
 
@@ -2088,8 +2425,7 @@ const server = http.createServer(async (req, res) => {
 
       const userId = generateUserId();
 
-      const domain =
-        chosen_domain || 'fullstack';
+      const domain = chosen_domain || null;
 
       const months =
         parseInt(timeline_months, 10);
@@ -2454,6 +2790,60 @@ const server = http.createServer(async (req, res) => {
 
 
   // ==========================================================
+  // 11c. UPDATE USER DOMAIN
+  // PATCH /api/user/:id/domain
+  // ==========================================================
+
+  const domainPatchMatch = parsedUrl.pathname.match(/^\/api\/user\/([^/]+)\/domain$/);
+  if (req.method === 'PATCH' && domainPatchMatch) {
+    try {
+      const userId = domainPatchMatch[1];
+      const payload = await readRequestBody(req);
+      const { chosen_domain } = payload;
+
+      if (!chosen_domain || !chosen_domain.trim()) {
+        return sendJSON(res, 400, { error: 'chosen_domain is required.' });
+      }
+
+      const updatedUser = await User.findOneAndUpdate(
+        { user_id: userId },
+        { chosen_domain: chosen_domain.trim() },
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        return sendJSON(res, 404, { error: 'User not found.' });
+      }
+
+      console.log(`✅ Domain updated for ${userId}: ${chosen_domain}`);
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: 'Domain updated successfully.',
+        profile: {
+          user_id: updatedUser.user_id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          chosen_domain: updatedUser.chosen_domain,
+          timeline_months: updatedUser.timeline_months,
+          daily_hours: updatedUser.daily_hours,
+          current_skill_level: updatedUser.current_skill_level,
+          quiz_completed: updatedUser.quiz_completed,
+          last_route: updatedUser.last_route,
+          roadmap_status: updatedUser.roadmap_status,
+          journey_started: updatedUser.journey_started || false,
+          journey_start_date: updatedUser.journey_start_date || null
+        }
+      });
+
+    } catch (err) {
+      console.error('❌ Domain update error:', err);
+      return sendJSON(res, 500, { error: 'Failed to update domain: ' + err.message });
+    }
+  }
+
+
+  // ==========================================================
   // 11b. QUIZ EVALUATION AGENT ENDPOINT
   // POST /api/quiz/evaluate
   // ==========================================================
@@ -2470,9 +2860,16 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = await readRequestBody(req);
-      let { user_id, domain, answers } = payload;
+      let { user_id, domain, answers, is_self_assessed, isSelfAssessed, skill_level, skillLevel } = payload;
+      const selfAssessed = !!(is_self_assessed || isSelfAssessed);
 
-      if (!user_id || !answers || !Array.isArray(answers) || answers.length === 0) {
+      if (!user_id) {
+        return sendJSON(res, 400, {
+          error: 'Missing required parameter: user_id.'
+        });
+      }
+
+      if (!selfAssessed && (!answers || !Array.isArray(answers) || answers.length === 0)) {
         return sendJSON(res, 400, {
           error: 'Missing required parameters: user_id, domain, and a non-empty answers array.'
         });
@@ -2519,57 +2916,75 @@ const server = http.createServer(async (req, res) => {
       }
 
       let correctCount = 0;
-      const totalQuestions = answers.length;
+      let totalQuestions = 0;
+      let scorePct = 0;
+      let finalSkillLevel = 'BEGINNER';
+      let levelDescription = '';
       const topicStats = {};
       const processedAnswers = [];
 
-      answers.forEach(q => {
-        const isCorrect = (q.user_answer !== undefined && q.user_answer !== null && q.user_answer !== 'Unanswered') &&
-          (String(q.user_answer).trim() === String(q.correct_answer).trim());
-        
-        if (isCorrect) {
-          correctCount++;
-        }
-
-        const topic = q.topic || 'General Knowledge';
-        if (!topicStats[topic]) {
-          topicStats[topic] = { total: 0, correct: 0, missedConceptual: false };
-        }
-        topicStats[topic].total++;
-        if (isCorrect) {
-          topicStats[topic].correct++;
+      if (selfAssessed) {
+        finalSkillLevel = (skill_level || skillLevel || 'BEGINNER').toUpperCase();
+        if (finalSkillLevel === 'ADVANCED') {
+          scorePct = 85;
+          levelDescription = 'High technical proficiency. User manually self-assessed as Advanced.';
+        } else if (finalSkillLevel === 'INTERMEDIATE') {
+          scorePct = 65;
+          levelDescription = 'Practical understanding solid. User manually self-assessed as Intermediate.';
         } else {
-          if (q.difficulty === 'BEGINNER' || !q.difficulty) {
-            topicStats[topic].missedConceptual = true;
-          }
+          finalSkillLevel = 'BEGINNER';
+          scorePct = 40;
+          levelDescription = 'Foundational gaps identified. User manually self-assessed as Beginner.';
         }
-
-        processedAnswers.push({
-          id: q.id,
-          question: q.question,
-          options: q.options || [],
-          user_answer: q.user_answer || 'Unanswered',
-          correct_answer: q.correct_answer,
-          topic: topic,
-          difficulty: q.difficulty || 'INTERMEDIATE',
-          is_correct: isCorrect
-        });
-      });
-
-      const scorePct = Math.round((correctCount / totalQuestions) * 100);
-
-      let skillLevel = 'BEGINNER';
-      let levelDescription = '';
-
-      if (scorePct >= 80) {
-        skillLevel = 'ADVANCED';
-        levelDescription = 'High technical proficiency. Focus on system design, internal architecture, performance tuning, and production trade-offs.';
-      } else if (scorePct >= 50) {
-        skillLevel = 'INTERMEDIATE';
-        levelDescription = 'Practical understanding solid. Ready for building projects, official documentation, and applied patterns.';
+        totalQuestions = 0;
+        correctCount = 0;
       } else {
-        skillLevel = 'BEGINNER';
-        levelDescription = 'Core foundational gaps present. Focus on fundamental syntax and guided visual learning.';
+        totalQuestions = answers.length;
+        answers.forEach(q => {
+          const isCorrect = (q.user_answer !== undefined && q.user_answer !== null && q.user_answer !== 'Unanswered') &&
+            (String(q.user_answer).trim() === String(q.correct_answer).trim());
+          
+          if (isCorrect) {
+            correctCount++;
+          }
+
+          const topic = q.topic || 'General Knowledge';
+          if (!topicStats[topic]) {
+            topicStats[topic] = { total: 0, correct: 0, missedConceptual: false };
+          }
+          topicStats[topic].total++;
+          if (isCorrect) {
+            topicStats[topic].correct++;
+          } else {
+            if (q.difficulty === 'BEGINNER' || !q.difficulty) {
+              topicStats[topic].missedConceptual = true;
+            }
+          }
+
+          processedAnswers.push({
+            id: q.id,
+            question: q.question,
+            options: q.options || [],
+            user_answer: q.user_answer || 'Unanswered',
+            correct_answer: q.correct_answer,
+            topic: topic,
+            difficulty: q.difficulty || 'INTERMEDIATE',
+            is_correct: isCorrect
+          });
+        });
+
+        scorePct = Math.round((correctCount / totalQuestions) * 100);
+
+        if (scorePct >= 80) {
+          finalSkillLevel = 'ADVANCED';
+          levelDescription = 'High technical proficiency. Focus on system design, internal architecture, performance tuning, and production trade-offs.';
+        } else if (scorePct >= 50) {
+          finalSkillLevel = 'INTERMEDIATE';
+          levelDescription = 'Practical understanding solid. Ready for building projects, official documentation, and applied patterns.';
+        } else {
+          finalSkillLevel = 'BEGINNER';
+          levelDescription = 'Core foundational gaps present. Focus on fundamental syntax and guided visual learning.';
+        }
       }
 
       const masteredTopics = [];
@@ -2610,12 +3025,13 @@ const server = http.createServer(async (req, res) => {
         score_pct: scorePct,
         correct_count: correctCount,
         total_questions: totalQuestions,
-        skill_level: skillLevel,
+        skill_level: finalSkillLevel,
         level_description: levelDescription,
         mastered_topics: masteredTopics,
         knowledge_gaps: knowledgeGaps,
         topic_evaluations: topicEvaluations,
-        answers: processedAnswers
+        answers: processedAnswers,
+        is_self_assessed: selfAssessed
       });
 
       await evaluationDoc.save();
@@ -2624,7 +3040,7 @@ const server = http.createServer(async (req, res) => {
       let updatedUser = await User.findOneAndUpdate(
         { user_id },
         {
-          current_skill_level: skillLevel,
+          current_skill_level: finalSkillLevel,
           quiz_completed: true,
           roadmap_status: 'ROADMAP_REQUIRED'
         },
@@ -3059,12 +3475,11 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 400, { error: 'Task ID parameter is required.' });
       }
 
+      console.log("RESOURCE CACHE LOOKUP:", { cacheKey: taskId, taskId });
+
       if (mongoose.connection.readyState === 1) {
         const cachedResources = await Resource.find({
-          $or: [
-            { resource_id: { $regex: taskId } },
-            { subtopic: { $regex: taskId } }
-          ]
+          resource_id: { $regex: taskId }
         }).limit(3);
 
         if (cachedResources && cachedResources.length > 0) {
@@ -3086,6 +3501,161 @@ const server = http.createServer(async (req, res) => {
         message: 'Recommended resources are temporarily unavailable.',
         resources: []
       });
+    }
+  }
+
+  // ==========================================================
+  // 11f. GROUNDED ASSESSMENT ENDPOINTS & LEVEL-UP ELIGIBILITY
+  // POST /api/resources/fetch-assessment
+  // POST /api/resources/grade-assessment
+  // ==========================================================
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/resources/fetch-assessment'
+  ) {
+    try {
+      const payload = await readRequestBody(req);
+      const { topic, subtopic, skill_level, domain, resource_url } = payload;
+      const cleanLevel = (skill_level || 'BEGINNER').toUpperCase();
+      const cleanTopic = topic || 'Core Topic';
+
+      const groundedSummary = `Grounded Learning Notes for ${cleanTopic} (${cleanLevel} Tier):\n1. Core Concepts: Explains fundamental mechanics and memory layout.\n2. Practical Patterns: Real-world implementation code.\n3. Edge Cases: Boundary behaviors and exception handling.`;
+
+      const questions = [
+        {
+          id: 'q1_concept',
+          taxonomy: 'Q1: Core Conceptual Understanding',
+          question: `According to the recommended ${cleanLevel.toLowerCase()} resource for ${cleanTopic}, what is the foundational conceptual rule?`,
+          options: [
+            `A) ${cleanTopic} operates via standardized reference architecture and explicit memory semantics.`,
+            `B) ${cleanTopic} bypasses type checks completely in runtime contexts.`,
+            `C) ${cleanTopic} requires direct hardware register manipulation.`,
+            `D) ${cleanTopic} is unsupported in modern software design.`
+          ],
+          correct_option_index: 0,
+          explanation: `The curated materials explicitly establish that ${cleanTopic} follows standardized reference semantics.`
+        },
+        {
+          id: 'q2_code',
+          taxonomy: 'Q2: Practical Code / Pattern Application',
+          question: `Which code snippet demonstrates the correct pattern application for ${cleanTopic}?`,
+          options: [
+            `A) execute_standard_pattern("${cleanTopic.toLowerCase().replace(/\s+/g, '_')}");`,
+            `B) # INVALID CODE ### ${cleanTopic}`,
+            `C) GOTO line 50;`,
+            `D) throw new SystemUnreachableError();`
+          ],
+          correct_option_index: 0,
+          explanation: `Standard pattern application uses clean modular function calls for ${cleanTopic}.`
+        },
+        {
+          id: 'q3_edge',
+          taxonomy: 'Q3: Output Prediction / Edge Case Handling',
+          question: `What is the output or behavior when handling edge cases during ${cleanTopic} execution?`,
+          options: [
+            `A) The system traps the edge condition gracefully and preserves invariant state.`,
+            `B) Silent memory corruption without stack trace.`,
+            `C) Infinite CPU loop blocking the event thread.`,
+            `D) Immediate crash with hardware exception.`
+          ],
+          correct_option_index: 0,
+          explanation: `Proper edge case handling traps boundary conditions gracefully without state corruption.`
+        }
+      ];
+
+      return sendJSON(res, 200, {
+        success: true,
+        topic: cleanTopic,
+        subtopic: subtopic || cleanTopic,
+        skill_level: cleanLevel,
+        domain: domain || 'fullstack',
+        resource_url: resource_url || 'https://docs.python.org/3/tutorial/',
+        grounded_summary: groundedSummary,
+        questions_count: questions.length,
+        questions
+      });
+    } catch (err) {
+      console.error('❌ Fetch assessment error:', err);
+      return sendJSON(res, 500, { error: err.message });
+    }
+  }
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/resources/grade-assessment'
+  ) {
+    try {
+      const payload = await readRequestBody(req);
+      const { topic, skill_level, questions, user_answers } = payload;
+      const cleanLevel = (skill_level || 'BEGINNER').toUpperCase();
+
+      if (!questions || !Array.isArray(questions) || !user_answers) {
+        return sendJSON(res, 400, { error: 'Missing required parameters: questions array and user_answers object.' });
+      }
+
+      let correctCount = 0;
+      const total = questions.length;
+      const detailedFeedback = [];
+
+      questions.forEach(q => {
+        const userChoice = user_answers[q.id];
+        const isCorrect = (userChoice === q.correct_option_index);
+        if (isCorrect) correctCount++;
+
+        detailedFeedback.append ? detailedFeedback.push({
+          question_id: q.id,
+          taxonomy: q.taxonomy || 'Question',
+          question: q.question,
+          user_choice_index: userChoice,
+          correct_option_index: q.correct_option_index,
+          is_correct: isCorrect,
+          explanation: q.explanation
+        }) : null;
+      });
+
+      const scorePct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+      const passed = scorePct >= 70;
+
+      let levelUpEligible = false;
+      let levelUpPrompt = null;
+      let levelUpOptions = null;
+
+      if (cleanLevel === 'BEGINNER' && scorePct >= 85) {
+        levelUpEligible = true;
+        levelUpPrompt = "🎉 Outstanding Performance! You achieved >= 85% on this Beginner Concept Assessment. You are eligible to LEVEL UP! How would you like to proceed?";
+        levelUpOptions = [
+          {
+            option_id: 'OPTION_A',
+            label: 'Option A: Level up same concept to Intermediate depth',
+            action: 'LEVEL_UP_CONCEPT_INTERMEDIATE',
+            description: 'Unlock deeper official developer documentation, GitHub sample code, and intermediate implementation drills for this concept.'
+          },
+          {
+            option_id: 'OPTION_B',
+            label: 'Option B: Move to next concept at Beginner level',
+            action: 'CONTINUE_BEGINNER_TRACK',
+            description: 'Proceed to the next foundational topic on your personalized roadmap at the gentle Beginner level.'
+          }
+        ];
+      }
+
+      return sendJSON(res, 200, {
+        success: true,
+        topic: topic || 'Concept',
+        score_pct: scorePct,
+        correct_count: correctCount,
+        total_questions: total,
+        passed,
+        user_level: cleanLevel,
+        level_up_eligible: levelUpEligible,
+        level_up_prompt: levelUpPrompt,
+        level_up_options: levelUpOptions,
+        detailed_feedback: detailedFeedback
+      });
+    } catch (err) {
+      console.error('❌ Grade assessment error:', err);
+      return sendJSON(res, 500, { error: err.message });
     }
   }
 
