@@ -1367,21 +1367,25 @@ class ResourceSuggesterAgent {
 
   async suggestResources(topic, skillTier, taskContext = {}) {
     try {
+      const payload = {
+        taskId: taskContext.id || taskContext.taskId,
+        taskTitle: taskContext.title || taskContext.taskTitle || topic,
+        taskType: taskContext.type || taskContext.taskType || 'LEARN',
+        taskDifficulty: skillTier || taskContext.difficulty || 'BEGINNER',
+        taskDuration: taskContext.estimated_minutes || taskContext.taskDuration || 30,
+        topic: topic,
+        dailyTopic: taskContext.dailyTopic || topic,
+        dayTopic: taskContext.dayTopic || topic,
+        subtopic: taskContext.subtopic || topic,
+        domain: taskContext.domain || 'fullstack',
+        userLevel: skillTier || 'BEGINNER',
+        user_id: taskContext.user_id
+      };
+      console.log('[POST /api/resources/recommend PAYLOAD]', payload);
       const res = await fetch('http://localhost:5000/api/resources/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId: taskContext.id || taskContext.taskId,
-          taskTitle: taskContext.title || taskContext.taskTitle || topic,
-          taskType: taskContext.type || taskContext.taskType || 'LEARN',
-          taskDifficulty: skillTier || taskContext.difficulty || 'BEGINNER',
-          taskDuration: taskContext.estimated_minutes || taskContext.taskDuration || 30,
-          dailyTopic: topic,
-          subtopic: taskContext.subtopic || topic,
-          domain: taskContext.domain || 'fullstack',
-          userLevel: skillTier || 'BEGINNER',
-          user_id: taskContext.user_id
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.resources && data.resources.length > 0) {
@@ -2518,17 +2522,26 @@ class PlacifySupervisorAgent {
       return null;
     }
 
-    const targetDayNum = parseInt(dayNumber, 10) || 1;
+    const daySpec = typeof dayNumber === 'object' && dayNumber !== null ? dayNumber : { day: parseInt(dayNumber, 10) || 1 };
+    const targetDayNum = parseInt(daySpec.day, 10) || 1;
+    const reqMonth = daySpec.month !== undefined && daySpec.month !== null ? parseInt(daySpec.month, 10) : null;
+    const reqWeek = daySpec.week !== undefined && daySpec.week !== null ? parseInt(daySpec.week, 10) : null;
+    const reqDayId = daySpec.dayId || null;
+
     let foundDay = null;
     let foundTask = null;
 
     if (Array.isArray(roadmap.monthly_roadmap)) {
       for (const month of roadmap.monthly_roadmap) {
+        if (reqMonth !== null && parseInt(month.month_number, 10) !== reqMonth) continue;
         if (Array.isArray(month.weeks)) {
           for (const week of month.weeks) {
+            if (reqWeek !== null && parseInt(week.week_number, 10) !== reqWeek) continue;
             if (Array.isArray(week.days)) {
               for (const day of week.days) {
-                if (parseInt(day.day_number, 10) === targetDayNum) {
+                const dNum = parseInt(day.day_number, 10);
+                const dId = day.id || day.day_id || '';
+                if ((reqDayId && dId === reqDayId) || dNum === targetDayNum) {
                   foundDay = day;
                   if (Array.isArray(day.tasks) && day.tasks.length > 0) {
                     foundTask = day.tasks[0];
@@ -2537,13 +2550,39 @@ class PlacifySupervisorAgent {
                 }
               }
             }
+            if (foundDay) break;
           }
+        }
+        if (foundDay) break;
+      }
+
+      if (!foundDay) {
+        for (const month of roadmap.monthly_roadmap) {
+          if (Array.isArray(month.weeks)) {
+            for (const week of month.weeks) {
+              if (Array.isArray(week.days)) {
+                for (const day of week.days) {
+                  const dNum = parseInt(day.day_number, 10);
+                  const dId = day.id || day.day_id || '';
+                  if ((reqDayId && dId === reqDayId) || dNum === targetDayNum) {
+                    foundDay = day;
+                    if (Array.isArray(day.tasks) && day.tasks.length > 0) {
+                      foundTask = day.tasks[0];
+                    }
+                    break;
+                  }
+                }
+              }
+              if (foundDay) break;
+            }
+          }
+          if (foundDay) break;
         }
       }
     }
 
     if (!foundTask && Array.isArray(roadmap.dailyTasks)) {
-      foundTask = roadmap.dailyTasks.find(t => parseInt(t.dayNumber || t.day_number, 10) === targetDayNum) || roadmap.dailyTasks[0];
+      foundTask = roadmap.dailyTasks.find(t => (reqDayId && (t.id === reqDayId || t.day_id === reqDayId)) || parseInt(t.dayNumber || t.day_number, 10) === targetDayNum) || roadmap.dailyTasks[0];
     }
 
     const skillTier = roadmap.overall_level || roadmap.skillTier || 'BEGINNER';

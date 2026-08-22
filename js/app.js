@@ -325,9 +325,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const routeToSwitch = onboardingState.route || 'roadmap';
         if (routeToSwitch === 'dailyHub') {
-          const userState = supervisor.progressTracker.getUserState();
-          const activeDay = (userState && userState.currentDayIndex !== undefined) ? userState.currentDayIndex + 1 : 1;
-          renderDailyHub(activeDay);
+          let savedSpec = null;
+          try {
+            const raw = localStorage.getItem('placify_selected_day_spec');
+            if (raw) savedSpec = JSON.parse(raw);
+          } catch(e) {}
+          if (!savedSpec) {
+            const userState = supervisor.progressTracker.getUserState();
+            const activeDay = (userState && userState.currentDayIndex !== undefined) ? userState.currentDayIndex + 1 : 1;
+            savedSpec = { day: activeDay };
+          }
+          renderDailyHub(savedSpec);
         }
         switchView(routeToSwitch);
       }
@@ -1450,7 +1458,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan);">
                   ⏱️ ${d.total_minutes} Mins Workload
                 </span>
-                <button class="btn btn-emerald launch-day-hub-btn" data-day="${d.day_number}" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                <button class="btn btn-emerald launch-day-hub-btn" 
+                  data-roadmap-id="${roadmap.roadmap_id || roadmap._id || roadmap.id || ''}" 
+                  data-month="${monthObj.month_number || 1}" 
+                  data-week="${weekObj.week_number || 1}" 
+                  data-day="${d.day_number}" 
+                  data-day-id="${d.id || d.day_id || ''}" 
+                  style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
                   Launch Day ${d.day_number} Tasks <i class="ph ph-arrow-right"></i>
                 </button>
               </div>
@@ -1488,8 +1502,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     container.querySelectorAll('.launch-day-hub-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const dayNum = parseInt(btn.dataset.day, 10);
-        renderDailyHub(dayNum);
+        const daySpec = {
+          roadmapId: btn.dataset.roadmapId || '',
+          month: parseInt(btn.dataset.month, 10),
+          week: parseInt(btn.dataset.week, 10),
+          day: parseInt(btn.dataset.day, 10),
+          dayId: btn.dataset.dayId || ''
+        };
+
+        console.log('[DAY NAVIGATION]', {
+          Clicked: true,
+          roadmapId: daySpec.roadmapId,
+          month: daySpec.month,
+          week: daySpec.week,
+          day: daySpec.day,
+          dayId: daySpec.dayId
+        });
+
+        renderDailyHub(daySpec);
         switchView('dailyHub');
       });
     });
@@ -1551,17 +1581,44 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('enter-daily-hub-btn').addEventListener('click', () => {
-    const state = supervisor.progressTracker.getUserState();
-    renderDailyHub(1);
+    let savedSpec = null;
+    try {
+      const raw = localStorage.getItem('placify_selected_day_spec');
+      if (raw) savedSpec = JSON.parse(raw);
+    } catch(e) {}
+    renderDailyHub(savedSpec || { month: 1, week: 1, day: 1 });
     switchView('dailyHub');
   });
 
   // =========================================================================
   // VIEW 5: DAILY LEARNING HUB
   // =========================================================================
-  async function renderDailyHub(dayNumber) {
-    const targetDayNum = parseInt(dayNumber, 10) || 1;
-    window.currentActiveDay = targetDayNum;
+  async function renderDailyHub(targetSpecOrNumber) {
+    let daySpec = {};
+    if (typeof targetSpecOrNumber === 'object' && targetSpecOrNumber !== null) {
+      daySpec = targetSpecOrNumber;
+    } else {
+      const parsedNum = parseInt(targetSpecOrNumber, 10) || 1;
+      daySpec = { day: parsedNum };
+    }
+
+    const requestedMonth = daySpec.month !== undefined && daySpec.month !== null ? parseInt(daySpec.month, 10) : null;
+    const requestedWeek = daySpec.week !== undefined && daySpec.week !== null ? parseInt(daySpec.week, 10) : null;
+    const requestedDay = daySpec.day !== undefined && daySpec.day !== null ? parseInt(daySpec.day, 10) : 1;
+    const requestedDayId = daySpec.dayId || null;
+    const requestedRoadmapId = daySpec.roadmapId || null;
+
+    window.currentSelectedDaySpec = {
+      roadmapId: requestedRoadmapId,
+      month: requestedMonth,
+      week: requestedWeek,
+      day: requestedDay,
+      dayId: requestedDayId
+    };
+
+    try {
+      localStorage.setItem('placify_selected_day_spec', JSON.stringify(window.currentSelectedDaySpec));
+    } catch (e) {}
 
     // Bulletproof roadmap resolution from memory, state, or localStorage
     let roadmap = window.activePersonalizedRoadmap;
@@ -1579,46 +1636,132 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
-    const dailyData = supervisor.getDailyTaskAndResources(targetDayNum);
-    const activeSession = supervisor.authAgent.getActiveSession();
-    const domainKey = roadmap ? (roadmap.domain_id || roadmap.domain || roadmap.chosen_domain) : 
-      (activeSession ? activeSession.chosen_domain : (window.currentDraftProfile ? window.currentDraftProfile.chosen_domain : 'cybersecurity'));
-
-    const userLevel = roadmap ? (roadmap.overall_level || roadmap.skillTier || 'BEGINNER') : 'BEGINNER';
-
-    // Find exact day object and tasks from active roadmap
     let dayObj = null;
+    let parentMonthObj = null;
+    let parentWeekObj = null;
     let dayTasksList = [];
+
     if (roadmap && Array.isArray(roadmap.monthly_roadmap)) {
+      // Step 1: Attempt strict match on month, week, day
       for (const month of roadmap.monthly_roadmap) {
+        const mNum = parseInt(month.month_number, 10);
+        if (requestedMonth !== null && mNum !== requestedMonth) continue;
+
         if (Array.isArray(month.weeks)) {
           for (const week of month.weeks) {
+            const wNum = parseInt(week.week_number, 10);
+            if (requestedWeek !== null && wNum !== requestedWeek) continue;
+
             if (Array.isArray(week.days)) {
               for (const day of week.days) {
-                if (parseInt(day.day_number, 10) === targetDayNum) {
+                const dNum = parseInt(day.day_number, 10);
+                const dId = day.id || day.day_id || '';
+                if (
+                  (requestedDayId && dId === requestedDayId) ||
+                  dNum === requestedDay
+                ) {
                   dayObj = day;
+                  parentMonthObj = month;
+                  parentWeekObj = week;
                   dayTasksList = Array.isArray(day.tasks) ? day.tasks : [];
                   break;
                 }
               }
             }
+            if (dayObj) break;
           }
+        }
+        if (dayObj) break;
+      }
+
+      // Step 2: Fallback search across all months/weeks if strict filter didn't match
+      if (!dayObj) {
+        for (const month of roadmap.monthly_roadmap) {
+          if (Array.isArray(month.weeks)) {
+            for (const week of month.weeks) {
+              if (Array.isArray(week.days)) {
+                for (const day of week.days) {
+                  const dNum = parseInt(day.day_number, 10);
+                  const dId = day.id || day.day_id || '';
+                  if (
+                    (requestedDayId && dId === requestedDayId) ||
+                    dNum === requestedDay
+                  ) {
+                    dayObj = day;
+                    parentMonthObj = month;
+                    parentWeekObj = week;
+                    dayTasksList = Array.isArray(day.tasks) ? day.tasks : [];
+                    break;
+                  }
+                }
+              }
+              if (dayObj) break;
+            }
+          }
+          if (dayObj) break;
         }
       }
     }
+
+    const targetDayNum = dayObj ? parseInt(dayObj.day_number, 10) : requestedDay;
+    window.currentActiveDay = targetDayNum;
+
+    const dailyData = supervisor.getDailyTaskAndResources(daySpec);
+    const activeSession = supervisor.authAgent.getActiveSession();
+    const domainKey = roadmap ? (roadmap.domain_id || roadmap.domain || roadmap.chosen_domain) : 
+      (activeSession ? activeSession.chosen_domain : (window.currentDraftProfile ? window.currentDraftProfile.chosen_domain : 'cybersecurity'));
+
+    const userLevel = (dayObj && dayObj.difficulty) ? dayObj.difficulty : (roadmap ? (roadmap.overall_level || roadmap.skillTier || 'BEGINNER') : 'BEGINNER');
 
     if (dayTasksList.length === 0 && dailyData && dailyData.task && Array.isArray(dailyData.task.tasks) && dailyData.task.tasks.length > 0) {
       dayTasksList = dailyData.task.tasks;
     }
 
+    const isStarted = (roadmap && (roadmap.journey_started || (activeSession && activeSession.journey_started))) &&
+      (roadmap.journey_start_date || (activeSession ? activeSession.journey_start_date : null));
+    const startDate = roadmap ? (roadmap.journey_start_date || (activeSession ? activeSession.journey_start_date : null)) : null;
+
+    let dayFormatted = dayObj ? (dayObj.day_name || `Day ${targetDayNum}`) : `Day ${targetDayNum}`;
+    if (parentWeekObj && isStarted && startDate) {
+      const overallDayOffset = (parentWeekObj.week_number - 1) * 7 + (targetDayNum - 1);
+      const dayDateObj = addDaysToDate(startDate, overallDayOffset);
+      if (dayDateObj) {
+        dayFormatted = formatDateLong(dayDateObj);
+      }
+    }
+
     const dayTopic = dayObj ? (dayObj.topic || 'Core Learning') : (dailyData && dailyData.task ? dailyData.task.topic : 'Core Learning');
-    const dayWorkload = dayObj ? (dayObj.total_minutes || 150) : (dailyData && dailyData.task && dailyData.task.estHours ? Math.round(dailyData.task.estHours * 60) : 150);
+    const dayWorkload = dayObj ? (dayObj.total_minutes || (dayTasksList.reduce((acc, t) => acc + (t.estimated_minutes || 0), 0) || 150)) : (dailyData && dailyData.task && dailyData.task.estHours ? Math.round(dailyData.task.estHours * 60) : 150);
+
+    console.log('[DAY RESOLUTION]', {
+      Requested: {
+        roadmapId: requestedRoadmapId || (roadmap ? roadmap.roadmap_id || roadmap.id : null),
+        month: requestedMonth,
+        week: requestedWeek,
+        day: requestedDay,
+        dayId: requestedDayId
+      },
+      Resolved: {
+        date: dayFormatted,
+        topic: dayTopic,
+        taskCount: dayTasksList.length,
+        taskIds: dayTasksList.map(t => t.id || t.taskId || t.title)
+      }
+    });
+
+    console.log('[EXECUTION PAGE]', {
+      Rendering: true,
+      dayNumber: targetDayNum,
+      date: dayFormatted,
+      topic: dayTopic,
+      taskIds: dayTasksList.map(t => t.id || t.taskId || t.title)
+    });
 
     const dayBadgeEl = document.getElementById('current-day-badge');
     if (dayBadgeEl) dayBadgeEl.textContent = `Day ${targetDayNum} Task Execution`;
 
     const titleEl = document.getElementById('current-task-title');
-    if (titleEl) titleEl.textContent = `${dayObj ? (dayObj.day_name || ('Day ' + targetDayNum)) : ('Day ' + targetDayNum)} — ${dayTopic}`;
+    if (titleEl) titleEl.textContent = `${dayFormatted} — ${dayTopic}`;
 
     const workloadEl = document.getElementById('current-day-workload-badge');
     if (workloadEl) workloadEl.textContent = `⏱️ ${dayWorkload} Mins Workload`;
@@ -1658,29 +1801,72 @@ document.addEventListener('DOMContentLoaded', () => {
         if (taskItem.type === 'PRACTICE' || taskItem.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
         else if (taskItem.type === 'PROBLEM_SOLVING' || taskItem.type === 'PROJECT') typeClass = 'SKIPPED';
 
+        const taskTopic =
+          taskItem.subtopic ||
+          taskItem.topic ||
+          taskItem.title ||
+          dayTopic;
+
+        const taskContext = {
+          id: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+          taskId: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+          dayNumber: targetDayNum,
+
+          title: taskItem.title,
+          taskTitle: taskItem.title,
+
+          topic: taskTopic,
+
+          subtopic:
+            taskItem.subtopic ||
+            taskItem.topic ||
+            taskItem.title ||
+            dayTopic,
+
+          dayTopic: dayTopic,
+
+          dailyTopic: taskTopic,
+
+          type: taskItem.type,
+          taskType: taskItem.type,
+
+          estimated_minutes: taskItem.estimated_minutes,
+          taskDuration: taskItem.estimated_minutes,
+
+          domain: domainKey,
+          chosen_domain: domainKey,
+
+          user_id: userId,
+
+          userLevel:
+            taskItem.difficulty || userLevel,
+
+          difficulty:
+            taskItem.difficulty || userLevel,
+
+          description:
+            taskItem.practice_details ||
+            taskItem.revision_details ||
+            taskItem.summary ||
+            ''
+        };
+
+        console.log('[PHASE 1 RESOURCE CONTEXT]', {
+          dayNumber: targetDayNum,
+          dayTopic,
+          taskId: taskContext.taskId,
+          taskTitle: taskContext.taskTitle,
+          taskType: taskContext.taskType,
+          taskTopic: taskContext.topic,
+          taskSubtopic: taskContext.subtopic,
+          domain: taskContext.domain,
+          difficulty: taskContext.difficulty
+        });
+
         const taskResources = await supervisor.resourceSuggester.suggestResources(
-          dayTopic || taskItem.title,
+          taskTopic,
           taskItem.difficulty || userLevel,
-          {
-            id: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
-            taskId: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
-            dayNumber: targetDayNum,
-            title: taskItem.title,
-            taskTitle: taskItem.title,
-            topic: dayTopic,
-            dailyTopic: dayTopic,
-            subtopic: taskItem.subtopic || taskItem.title || dayTopic,
-            type: taskItem.type,
-            taskType: taskItem.type,
-            estimated_minutes: taskItem.estimated_minutes,
-            taskDuration: taskItem.estimated_minutes,
-            domain: domainKey,
-            chosen_domain: domainKey,
-            user_id: userId,
-            userLevel: taskItem.difficulty || userLevel,
-            difficulty: taskItem.difficulty || userLevel,
-            description: taskItem.practice_details || taskItem.revision_details || taskItem.summary || ''
-          }
+          taskContext
         );
 
         fullHTML += `
@@ -1836,8 +2022,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('continue-learning-btn').addEventListener('click', () => {
-    const nextDay = (window.currentActiveDay || 1) + 1;
-    renderDailyHub(nextDay);
+    const curSpec = window.currentSelectedDaySpec || {};
+    const nextSpec = {
+      ...curSpec,
+      day: (curSpec.day || window.currentActiveDay || 1) + 1
+    };
+    renderDailyHub(nextSpec);
     switchView('dailyHub');
   });
 
