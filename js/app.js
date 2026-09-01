@@ -126,6 +126,229 @@ document.addEventListener('DOMContentLoaded', () => {
         if (errEl) errEl.style.display = 'none';
       });
     });
+
+    // Initialize AI Domain Selection Chatbot
+    initDomainAssistantChatbot();
+  }
+
+  // =========================================================================
+  // AI DOMAIN ASSISTANT CHATBOT CONTROLLER
+  // =========================================================================
+  let chatHistoryMessages = [];
+  let isChatbotInitialized = false;
+
+  function initDomainAssistantChatbot() {
+    const historyEl = document.getElementById('domain-chat-history');
+    const formEl = document.getElementById('domain-chat-form');
+    const inputEl = document.getElementById('domain-chat-input');
+    const typingEl = document.getElementById('domain-chat-typing');
+    const resetBtn = document.getElementById('domain-chat-reset-btn');
+    const fabBtn = document.getElementById('domain-chat-fab');
+    const closeBtn = document.getElementById('domain-chat-close-btn');
+    const wrapper = document.querySelector('.domain-assistant-wrapper');
+
+    if (!historyEl || !formEl || !inputEl) return;
+
+    // Helper: Select card programmatically using existing selection mechanism
+    function selectDomainCardProgrammatically(domainId) {
+      const targetCard = document.getElementById(`dsc-${domainId}`);
+      const grid = document.getElementById('domain-selection-grid');
+      if (grid && targetCard) {
+        grid.querySelectorAll('.domain-card').forEach(c => c.classList.remove('selected'));
+        targetCard.classList.add('selected');
+        selectedDomainId = domainId;
+        const errEl = document.getElementById('domain-select-error');
+        if (errEl) errEl.style.display = 'none';
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    // Helper: Append Chat Message to UI & State
+    function appendMessage(role, text, recommendation = null) {
+      chatHistoryMessages.push({ role, content: text });
+
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `chat-message ${role}-message`;
+
+      const avatarDiv = document.createElement('div');
+      avatarDiv.className = 'message-avatar';
+      avatarDiv.innerHTML = role === 'user' ? '<i class="ph ph-user"></i>' : '<i class="ph ph-sparkle"></i>';
+
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+
+      // Parse bold/markdown bullet formatting cleanly
+      let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      formattedText = formattedText.replace(/• (.*?)(\n|$)/g, '<li>$1</li>');
+      if (formattedText.includes('<li>')) {
+        formattedText = formattedText.replace(/(<li>.*?<\/li>)/gs, '<ul style="margin-top:0.3rem; padding-left:1.2rem;">$1</ul>');
+      }
+      formattedText = formattedText.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
+      contentDiv.innerHTML = formattedText;
+
+      // If structured recommendation is attached, render interactive widget
+      if (recommendation && recommendation.recommendedDomain) {
+        const widgetDiv = document.createElement('div');
+        widgetDiv.className = 'recommendation-card-widget';
+        widgetDiv.innerHTML = `
+          <div class="recommendation-badge">
+            <i class="ph ph-check-circle"></i> Recommended Match (${Math.round((recommendation.confidence || 0.9) * 100)}%)
+          </div>
+          <div class="recommendation-title">
+            <i class="ph ${recommendation.icon || 'ph-compass'}"></i> ${recommendation.recommendedDomain}
+          </div>
+          <div class="recommendation-reason">${recommendation.reason || ''}</div>
+          <button type="button" class="btn-select-recommended" data-id="${recommendation.recommendedDomainId}">
+            <i class="ph ph-check"></i> Select ${recommendation.recommendedDomain}
+          </button>
+          ${recommendation.alternatives && recommendation.alternatives.length > 0 ? `
+            <div class="recommendation-alternatives">
+              <div class="alternatives-label">Also consider:</div>
+              <div class="alternatives-chips">
+                ${recommendation.alternatives.map(alt => `<button type="button" class="alternative-chip" data-id="${alt.id}">${alt.name}</button>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        `;
+
+        // Wire Select This Domain button
+        const selectBtn = widgetDiv.querySelector('.btn-select-recommended');
+        if (selectBtn) {
+          selectBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            selectDomainCardProgrammatically(recommendation.recommendedDomainId);
+            widgetDiv.querySelectorAll('.btn-select-recommended').forEach(b => {
+              b.classList.add('selected-active');
+              b.innerHTML = `<i class="ph ph-check-circle"></i> Selected ${recommendation.recommendedDomain}`;
+            });
+          });
+        }
+
+        // Wire Alternative Domain buttons
+        widgetDiv.querySelectorAll('.alternative-chip').forEach(altBtn => {
+          altBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const altId = altBtn.dataset.id;
+            selectDomainCardProgrammatically(altId);
+            const domObj = window.PLACIFY_DATA ? window.PLACIFY_DATA.findDomain(altId) : null;
+            const domName = domObj ? domObj.name : altId;
+            if (selectBtn) {
+              selectBtn.classList.add('selected-active');
+              selectBtn.innerHTML = `<i class="ph ph-check-circle"></i> Selected ${domName}`;
+            }
+          });
+        });
+
+        contentDiv.appendChild(widgetDiv);
+      }
+
+      msgDiv.appendChild(avatarDiv);
+      msgDiv.appendChild(contentDiv);
+      historyEl.appendChild(msgDiv);
+      historyEl.scrollTop = historyEl.scrollHeight;
+    }
+
+    // Reset Chatbot State
+    function resetChat() {
+      chatHistoryMessages = [];
+      historyEl.innerHTML = `
+        <div class="chat-message assistant-message">
+          <div class="message-avatar"><i class="ph ph-sparkle"></i></div>
+          <div class="message-content">
+            <p>Hi! I can help you choose the right learning domain. What are you hoping to build or become good at?</p>
+          </div>
+        </div>
+        <div id="domain-chat-chips" class="chat-chips-container">
+          <button type="button" class="chat-chip" data-prompt="I want to build websites and web applications.">🌐 Build Websites & Web Apps</button>
+          <button type="button" class="chat-chip" data-prompt="I want to analyze data and build machine learning models.">📊 Data & AI Models</button>
+          <button type="button" class="chat-chip" data-prompt="I want to learn ethical hacking and penetration testing.">🛡️ Ethical Hacking & Cyber</button>
+          <button type="button" class="chat-chip" data-prompt="I want to manage AWS cloud systems and DevOps pipelines.">☁️ AWS Cloud & DevOps</button>
+          <button type="button" class="chat-chip" data-prompt="I want to build mobile apps for iOS and Android.">📱 Mobile Apps (React Native/Flutter)</button>
+        </div>
+      `;
+      bindChipListeners();
+      if (inputEl) inputEl.value = '';
+    }
+
+    // Send User Input to Backend AI Endpoint
+    async function handleSendUserMessage(userText) {
+      const text = (userText || inputEl.value || '').trim();
+      if (!text) return;
+
+      // Remove chips container if visible
+      const chipsEl = document.getElementById('domain-chat-chips');
+      if (chipsEl) chipsEl.style.display = 'none';
+
+      inputEl.value = '';
+      appendMessage('user', text);
+
+      if (typingEl) typingEl.style.display = 'flex';
+      historyEl.scrollTop = historyEl.scrollHeight;
+
+      try {
+        const response = await fetch('http://localhost:5000/api/domain-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: chatHistoryMessages,
+            availableDomains: (window.PLACIFY_DATA && window.PLACIFY_DATA.domains) ? window.PLACIFY_DATA.domains : []
+          })
+        });
+
+        const data = await response.json();
+        if (typingEl) typingEl.style.display = 'none';
+
+        if (!response.ok || !data) {
+          throw new Error(data.error || 'Failed to communicate with AI Assistant.');
+        }
+
+        appendMessage('assistant', data.reply || 'Here is my recommendation:', data.recommendation || null);
+
+      } catch (err) {
+        if (typingEl) typingEl.style.display = 'none';
+        appendMessage('assistant', "I'm having trouble connecting right now. You can still choose a domain manually from the options on the screen.");
+      }
+    }
+
+    // Bind Chip Click Events
+    function bindChipListeners() {
+      const chips = historyEl.querySelectorAll('.chat-chip');
+      chips.forEach(chip => {
+        chip.addEventListener('click', () => {
+          const prompt = chip.dataset.prompt;
+          handleSendUserMessage(prompt);
+        });
+      });
+    }
+
+    if (!isChatbotInitialized) {
+      isChatbotInitialized = true;
+
+      bindChipListeners();
+
+      if (formEl) {
+        formEl.addEventListener('submit', (e) => {
+          e.preventDefault();
+          handleSendUserMessage();
+        });
+      }
+
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => resetChat());
+      }
+
+      if (fabBtn && wrapper) {
+        fabBtn.addEventListener('click', () => {
+          wrapper.classList.toggle('active');
+        });
+      }
+
+      if (closeBtn && wrapper) {
+        closeBtn.addEventListener('click', () => {
+          wrapper.classList.remove('active');
+        });
+      }
+    }
   }
 
   // (legacy: keep renderDomainGrid as no-op since domain grid removed from reg form)
@@ -444,16 +667,21 @@ document.addEventListener('DOMContentLoaded', () => {
     return arr;
   }
 
-  function renderDiagnosticQuiz(domainId) {
+  function renderDiagnosticQuiz(domainId, customQuestions = null) {
     const domain = window.PLACIFY_DATA.findDomain(domainId);
-    currentDiagnosticDomainObj = domain;
+    currentDiagnosticDomainObj = domain || { id: domainId, name: domainId, diagnostics: [] };
     currentDiagnosticIndex = 0;
     diagnosticUserAnswers = {};
 
-    // Minimize and randomize quiz questions (Sample 10 random questions per session from domain pool)
-    const allDiagnostics = domain.diagnostics || [];
-    const activeDiagnostics = shuffleArray(allDiagnostics).slice(0, 10);
+    const allDiagnostics = (domain && domain.diagnostics) ? domain.diagnostics : [];
+    let activeDiagnostics = [];
+    if (Array.isArray(customQuestions) && customQuestions.length > 0) {
+      activeDiagnostics = customQuestions;
+    } else {
+      activeDiagnostics = shuffleArray(allDiagnostics).slice(0, selectedQuestionCount);
+    }
     currentDiagnosticDomainObj.activeDiagnostics = activeDiagnostics;
+    window.currentDiagnosticDomainObj = currentDiagnosticDomainObj;
 
     const container = document.getElementById('diagnostic-questions-container');
     const paletteContainer = document.getElementById('diagnostic-palette-container');
@@ -463,23 +691,28 @@ document.addEventListener('DOMContentLoaded', () => {
       countBadge.textContent = 'Technical Diagnostic Quiz';
     }
 
+    const domainNameText = domain ? domain.name : domainId;
+
     // Populate Manual Self-Assessment Header & Topic Grid
     const headerDomainName = document.getElementById('diagnostic-domain-name-header');
-    if (headerDomainName) headerDomainName.textContent = domain.name;
+    if (headerDomainName) headerDomainName.textContent = domainNameText;
 
     const manualDomainTitle = document.getElementById('manual-domain-title');
-    if (manualDomainTitle) manualDomainTitle.textContent = domain.name;
+    if (manualDomainTitle) manualDomainTitle.textContent = domainNameText;
 
     const quizDomainTitle = document.getElementById('quiz-domain-title');
-    if (quizDomainTitle) quizDomainTitle.textContent = domain.name;
+    if (quizDomainTitle) quizDomainTitle.textContent = domainNameText;
 
     // Reset Quiz Wrapper to hidden initially
     const quizWrapper = document.getElementById('diagnostic-quiz-wrapper');
     if (quizWrapper) quizWrapper.style.display = 'none';
 
     const topicGrid = document.getElementById('manual-topic-grid');
-    if (topicGrid && domain) {
-      const domainTopics = domain.topics || Array.from(new Set(allDiagnostics.map(d => d.topic))).filter(Boolean);
+    if (topicGrid) {
+      const topicSource = activeDiagnostics.length > 0 ? activeDiagnostics : allDiagnostics;
+      const domainTopics = (domain && domain.topics && domain.topics.length > 0)
+        ? domain.topics
+        : Array.from(new Set(topicSource.map(d => d.topic))).filter(Boolean);
       topicGrid.innerHTML = domainTopics.map((topic, idx) => `
         <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
           <span style="font-size: 0.82rem; font-weight: 600; color: #fff;">${topic}</span>
@@ -510,25 +743,40 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
+    function escapeHTML(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     // Render Question Cards for active randomized questions
     container.innerHTML = activeDiagnostics.map((q, idx) => {
-      const qType = q.type || 'MCQ';
-      const isMSQ = qType === 'MSQ';
-      const isNumerical = qType === 'NUMERICAL';
+      const qType = (q.type || 'MCQ').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      const isMSQ = qType === 'MSQ' || qType === 'MULTIPLE_SELECT' || qType === 'MULTIPLE_CHOICE_MULTI';
+      const isTextOrNumerical = (qType === 'NUMERICAL' || qType === 'FILL_BLANK' || qType === 'FILL_IN_THE_BLANK' || qType === 'SHORT_ANSWER') && (!Array.isArray(q.options) || q.options.length === 0);
 
       let typeBadgeColor = 'var(--accent-violet)';
       if (isMSQ) typeBadgeColor = '#f59e0b';
-      else if (isNumerical) typeBadgeColor = '#3b82f6';
+      else if (isTextOrNumerical) typeBadgeColor = '#3b82f6';
       else if (qType === 'CODE_OUTPUT') typeBadgeColor = '#ec4899';
       else if (qType === 'SCENARIO_BASED') typeBadgeColor = '#10b981';
+
+      const safeQuestion = escapeHTML(q.question);
+      const safeTopic = escapeHTML(q.topic);
+      const safeSubtopic = escapeHTML(q.subtopic || 'Core Concept');
+      const safeCodeSnippet = q.codeSnippet ? escapeHTML(q.codeSnippet) : null;
 
       return `
         <div class="quiz-question-card" data-qid="${q.id}" data-qidx="${idx}" style="display: ${idx === 0 ? 'block' : 'none'};">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
               <span class="question-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-violet); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">Q${idx + 1} / ${activeDiagnostics.length}</span>
-              <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${q.topic}</span>
-              <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${q.subtopic || 'Core Concept'}</span>
+              <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${safeTopic}</span>
+              <span style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px;">${safeSubtopic}</span>
             </div>
             <div style="display: flex; gap: 0.4rem; align-items: center;">
               <span style="font-size: 0.75rem; background: rgba(255,255,255,0.08); color: ${typeBadgeColor}; padding: 0.2rem 0.6rem; border-radius: 50px; font-weight: 700;">${qType}</span>
@@ -537,32 +785,34 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
 
           <div class="quiz-question-title" style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem; line-height: 1.5;">
-            ${q.question}
+            ${safeQuestion}
           </div>
 
-          ${q.codeSnippet ? `
-            <pre style="background: rgba(0,0,0,0.5); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); overflow-x: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; margin-bottom: 1rem;"><code>${q.codeSnippet}</code></pre>
+          ${safeCodeSnippet ? `
+            <pre style="background: rgba(0,0,0,0.5); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); overflow-x: auto; font-family: monospace; font-size: 0.85rem; color: #a7f3d0; margin-bottom: 1rem;"><code>${safeCodeSnippet}</code></pre>
           ` : ''}
 
-          <!-- OPTIONS OR NUMERICAL INPUT -->
+          <!-- OPTIONS OR NUMERICAL / TEXT INPUT -->
           <div class="quiz-options">
-            ${isNumerical ? `
+            ${isTextOrNumerical ? `
               <div style="margin-top: 0.5rem;">
-                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;">Enter Numerical Answer:</label>
-                <input type="number" step="any" class="form-input numerical-input" data-qid="${q.id}" placeholder="e.g. 10 or 0.5" style="max-width: 300px;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;">
+                  ${qType === 'NUMERICAL' ? 'Enter Numerical Answer:' : 'Enter Your Answer:'}
+                </label>
+                <input type="${qType === 'NUMERICAL' ? 'number' : 'text'}" step="any" class="form-input text-answer-input numerical-input" data-qid="${q.id}" placeholder="${qType === 'NUMERICAL' ? 'e.g. 10 or 0.5' : 'Type your answer here...'}" style="max-width: 400px; width: 100%;">
               </div>
             ` : (isMSQ ? `
               <div style="font-size: 0.8rem; color: #f59e0b; font-weight: 600; margin-bottom: 0.6rem;">Select ALL correct answers:</div>
-              ${q.options.map((opt, oIdx) => `
+              ${(q.options || []).map((opt, oIdx) => `
                 <label class="option-btn msq-option-btn" data-qid="${q.id}" data-oidx="${oIdx}" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; padding: 0.7rem 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); margin-bottom: 0.5rem;">
                   <input type="checkbox" class="msq-checkbox" data-qid="${q.id}" data-oidx="${oIdx}" style="width: 18px; height: 18px; accent-color: var(--accent-violet);">
-                  <span class="opt-text">${opt}</span>
+                  <span class="opt-text">${escapeHTML(opt)}</span>
                 </label>
               `).join('')}
             ` : `
-              ${q.options.map((opt, oIdx) => `
+              ${(q.options || []).map((opt, oIdx) => `
                 <div class="option-btn" data-qid="${q.id}" data-oidx="${oIdx}">
-                  <i class="ph ph-circle"></i> <span class="opt-text">${opt}</span>
+                  <i class="ph ph-circle"></i> <span class="opt-text">${escapeHTML(opt)}</span>
                 </div>
               `).join('')}
             `)}
@@ -573,11 +823,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateDiagnosticControls();
 
-    // Attach Event Handlers for Options / Numerical / MSQ
-    container.onchange = function(e) {
-      if (e.target.classList.contains('numerical-input')) {
+    // Attach Event Handlers for Options / Numerical / Text / MSQ
+    const handleInputChange = function(e) {
+      if (e.target.classList.contains('text-answer-input') || e.target.classList.contains('numerical-input')) {
         const qid = e.target.dataset.qid;
-        diagnosticUserAnswers[qid] = e.target.value.trim();
+        const val = e.target.value.trim();
+        if (val !== '') {
+          diagnosticUserAnswers[qid] = val;
+        } else {
+          delete diagnosticUserAnswers[qid];
+        }
         updatePaletteStatus();
       }
       if (e.target.classList.contains('msq-checkbox')) {
@@ -593,6 +848,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePaletteStatus();
       }
     };
+
+    container.onchange = handleInputChange;
+    container.oninput = handleInputChange;
 
     container.onclick = function(e) {
       const btn = e.target.closest('.option-btn:not(.msq-option-btn)');
@@ -673,6 +931,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDiagnosticControls();
   }
 
+  window.renderDiagnosticQuiz = renderDiagnosticQuiz;
+
   // Prev / Next button listeners
   const prevBtn = document.getElementById('quiz-prev-btn');
   if (prevBtn) {
@@ -748,10 +1008,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // =========================================================================
-  // MANDATORY STEP 1 SELF-ASSESSMENT & STEP 2 PATH SELECTION HANDLERS
-  // =========================================================================
   let selectedSelfLevel = 'BEGINNER';
+  let selectedQuestionCount = 10;
+
+  // Handle Question Count Pill Clicks
+  document.querySelectorAll('.quiz-count-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.quiz-count-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      selectedQuestionCount = parseInt(pill.dataset.count, 10) || 10;
+      const btnLabel = document.getElementById('quiz-count-btn-label');
+      if (btnLabel) btnLabel.textContent = `${selectedQuestionCount}-Question`;
+    });
+  });
 
   function updateDeclaredLevelUI(level) {
     selectedSelfLevel = level;
@@ -820,14 +1089,59 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Step 2 Option A: Start Quiz Button
+  // Step 2 Option A: Start Quiz Button (Generates Dynamic AI Quiz via Backend)
   const startQuizBtn = document.getElementById('start-diagnostic-quiz-btn');
   if (startQuizBtn) {
-    startQuizBtn.addEventListener('click', () => {
+    startQuizBtn.addEventListener('click', async () => {
       const quizWrapper = document.getElementById('diagnostic-quiz-wrapper');
-      if (quizWrapper) {
-        quizWrapper.style.display = 'block';
-        quizWrapper.scrollIntoView({ behavior: 'smooth' });
+
+      const activeSession = supervisor.authAgent.getActiveSession();
+      const currentUserId = (window.currentDraftProfile && window.currentDraftProfile.user_id) || (activeSession && activeSession.user_id) || 'guest';
+      const chosenDomain = (window.currentDraftProfile && window.currentDraftProfile.chosen_domain) || (activeSession && activeSession.chosen_domain) || selectedDomainId || 'fullstack';
+
+      startQuizBtn.disabled = true;
+      startQuizBtn.innerHTML = `<i class="ph ph-circle-notch ph-spin"></i> Generating ${selectedQuestionCount} AI Questions...`;
+
+      try {
+        console.log(`[Frontend Quiz Gen] Requesting ${selectedQuestionCount} questions for domain ${chosenDomain} at level ${selectedSelfLevel}...`);
+        const res = await fetch('http://localhost:5000/api/quiz/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: currentUserId,
+            questionCount: selectedQuestionCount,
+            domain: chosenDomain,
+            level: selectedSelfLevel,
+            forceNew: true
+          })
+        });
+
+        const quizData = await res.json();
+        if (!res.ok || !quizData || !Array.isArray(quizData.questions)) {
+          throw new Error(quizData.error || 'Failed to generate dynamic quiz.');
+        }
+
+        console.log(`✅ [Frontend Quiz Gen] Received ${quizData.questions.length} questions from backend!`, quizData);
+
+        // Render Quiz with backend-generated dynamic questions
+        renderDiagnosticQuiz(chosenDomain, quizData.questions);
+
+        if (quizWrapper) {
+          quizWrapper.style.display = 'block';
+          quizWrapper.scrollIntoView({ behavior: 'smooth' });
+        }
+
+      } catch (err) {
+        console.error('Quiz Generation error:', err);
+        alert('Could not generate dynamic quiz: ' + err.message + '\n\nFalling back to domain diagnostic pool.');
+        renderDiagnosticQuiz(chosenDomain);
+        if (quizWrapper) {
+          quizWrapper.style.display = 'block';
+          quizWrapper.scrollIntoView({ behavior: 'smooth' });
+        }
+      } finally {
+        startQuizBtn.disabled = false;
+        startQuizBtn.innerHTML = `<i class="ph ph-play"></i> Generate <span id="quiz-count-btn-label">${selectedQuestionCount}-Question</span> Quiz`;
       }
     });
   }
@@ -902,24 +1216,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const summaryDisplay = document.getElementById('tier-summary-text');
     const tierLabel = document.getElementById('tier-label-display');
     
-    tierLabel.textContent = evaluation.skillTier;
-    tierLabel.className = `tier-label ${evaluation.skillTier}`;
+    const skillTierVal = evaluation.skillTier || evaluation.skill_level || evaluation.skillLevel || 'BEGINNER';
+    const scoreVal = evaluation.scorePct !== undefined ? evaluation.scorePct : (evaluation.score_pct !== undefined ? evaluation.score_pct : 0);
+    const correctVal = evaluation.correctCount !== undefined ? evaluation.correctCount : (evaluation.correct_count !== undefined ? evaluation.correct_count : 0);
+    const totalVal = evaluation.totalQuestions !== undefined ? evaluation.totalQuestions : (evaluation.total_questions !== undefined ? evaluation.total_questions : 0);
+    const levelDesc = evaluation.levelDescription || evaluation.level_description || '';
 
-    if (evaluation.isSelfAssessed) {
+    tierLabel.textContent = skillTierVal;
+    tierLabel.className = `tier-label ${skillTierVal}`;
+
+    if (evaluation.isSelfAssessed || evaluation.is_self_assessed) {
       if (scoreDisplay) {
         scoreDisplay.textContent = 'SELF';
         scoreDisplay.style.fontSize = '1.3rem';
       }
       if (summaryDisplay) {
-        summaryDisplay.textContent = `Baseline established via User Self-Assessment (${evaluation.skillTier}). Dynamic roadmap configured to match declared proficiency.`;
+        summaryDisplay.textContent = `Baseline established via User Self-Assessment (${skillTierVal}). Dynamic roadmap configured to match declared proficiency.`;
       }
     } else {
       if (scoreDisplay) {
-        scoreDisplay.textContent = `${evaluation.scorePct}%`;
+        scoreDisplay.textContent = `${scoreVal}%`;
         scoreDisplay.style.fontSize = '2rem';
       }
       if (summaryDisplay) {
-        summaryDisplay.textContent = `Evaluated by Placify Quiz Performance Evaluator Agent. Score: ${evaluation.scorePct}%. Correct: ${evaluation.correctCount}/${evaluation.totalQuestions}. ${evaluation.levelDescription || ''}`;
+        summaryDisplay.textContent = `Evaluated by Placify Quiz Performance Evaluator Agent. Score: ${scoreVal}%. Correct: ${correctVal}/${totalVal}. ${levelDesc}`;
       }
     }
 

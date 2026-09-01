@@ -421,6 +421,184 @@ class AuthAgent {
    2. QUIZ EVALUATOR AGENT
    ============================================================ */
 
+function evaluateQuestionClient(q, userSelectionInput) {
+  const qId = q.id || q._id || 'unknown';
+  const qType = (q.type || 'MCQ').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+  const options = Array.isArray(q.options) ? q.options : [];
+  const rawCorrect = q.correct !== undefined ? q.correct : q.correct_answer;
+
+  let userSelection = userSelectionInput;
+  if (userSelection === undefined && q.user_answer !== undefined) {
+    userSelection = q.user_answer;
+  }
+  if (userSelection === undefined && q.userAnswer !== undefined) {
+    userSelection = q.userAnswer;
+  }
+
+  const rawCorrectType = Array.isArray(rawCorrect) ? 'array' : typeof rawCorrect;
+  const rawUserType = Array.isArray(userSelection) ? 'array' : typeof userSelection;
+
+  let isCorrect = false;
+  let normalizedCorrect = '';
+  let normalizedUser = '';
+
+  function getOptionInfo(val) {
+    if (val === undefined || val === null || val === '' || val === 'Unanswered') {
+      return { index: -1, text: '', raw: 'Unanswered' };
+    }
+    if (typeof val === 'number' && !isNaN(val)) {
+      const idx = Math.floor(val);
+      if (idx >= 0 && options[idx] !== undefined) {
+        return { index: idx, text: String(options[idx]), raw: String(val) };
+      }
+      return { index: idx, text: String(val), raw: String(val) };
+    }
+
+    const strVal = String(val).trim();
+    if (!strVal || strVal === 'Unanswered') {
+      return { index: -1, text: '', raw: 'Unanswered' };
+    }
+
+    if (/^\d+$/.test(strVal)) {
+      const idx = parseInt(strVal, 10);
+      if (idx >= 0 && options[idx] !== undefined) {
+        return { index: idx, text: String(options[idx]), raw: strVal };
+      }
+    }
+
+    if (/^[a-zA-Z]$/.test(strVal)) {
+      const idx = strVal.toUpperCase().charCodeAt(0) - 65;
+      if (idx >= 0 && idx < options.length) {
+        return { index: idx, text: String(options[idx]), raw: strVal };
+      }
+    }
+
+    if (options.length > 0) {
+      const matchedIdx = options.findIndex(opt => String(opt).trim().toLowerCase() === strVal.toLowerCase());
+      if (matchedIdx !== -1) {
+        return { index: matchedIdx, text: String(options[matchedIdx]), raw: strVal };
+      }
+    }
+
+    return { index: -1, text: strVal, raw: strVal };
+  }
+
+  if (qType === 'MSQ' || qType === 'MULTIPLE_SELECT' || qType === 'MULTIPLE_CHOICE_MULTI') {
+    let corrArray = [];
+    if (Array.isArray(rawCorrect)) {
+      corrArray = rawCorrect;
+    } else if (typeof rawCorrect === 'string' && rawCorrect.trim()) {
+      corrArray = rawCorrect.split(/;|,/).map(s => s.trim()).filter(Boolean);
+    } else if (rawCorrect !== undefined && rawCorrect !== null) {
+      corrArray = [rawCorrect];
+    }
+
+    let userArray = [];
+    if (Array.isArray(userSelection)) {
+      userArray = userSelection;
+    } else if (typeof userSelection === 'string' && userSelection.trim() && userSelection !== 'Unanswered') {
+      userArray = userSelection.split(/;|,/).map(s => s.trim()).filter(Boolean);
+    } else if (userSelection !== undefined && userSelection !== null && userSelection !== 'Unanswered') {
+      userArray = [userSelection];
+    }
+
+    const normCorrSet = corrArray.map(getOptionInfo).filter(i => i.raw !== 'Unanswered');
+    const normUserSet = userArray.map(getOptionInfo).filter(i => i.raw !== 'Unanswered');
+
+    const corrKeys = normCorrSet.map(i => i.index >= 0 ? `idx:${i.index}` : `txt:${i.text.toLowerCase()}`).sort();
+    const userKeys = normUserSet.map(i => i.index >= 0 ? `idx:${i.index}` : `txt:${i.text.toLowerCase()}`).sort();
+
+    normalizedCorrect = corrKeys.join(', ');
+    normalizedUser = userKeys.join(', ');
+
+    if (userKeys.length > 0 && userKeys.length === corrKeys.length) {
+      isCorrect = userKeys.every((val, idx) => val === corrKeys[idx]);
+    } else {
+      isCorrect = false;
+    }
+  } else if (qType === 'TRUE_FALSE' || qType === 'TRUE/FALSE' || qType === 'BOOLEAN') {
+    const parseBool = (val) => {
+      if (val === true) return 'true';
+      if (val === false) return 'false';
+      if (val === undefined || val === null || val === '' || val === 'Unanswered') return '';
+      const str = String(val).trim().toLowerCase();
+      if (str === 'true' || str === 't' || str === '1' || str === 'yes') return 'true';
+      if (str === 'false' || str === 'f' || str === '0' || str === 'no') return 'false';
+      const info = getOptionInfo(val);
+      if (info.text.toLowerCase().includes('true')) return 'true';
+      if (info.text.toLowerCase().includes('false')) return 'false';
+      return str;
+    };
+
+    normalizedCorrect = parseBool(rawCorrect);
+    normalizedUser = parseBool(userSelection);
+    isCorrect = (normalizedUser !== '' && normalizedUser === normalizedCorrect);
+  } else if (qType === 'NUMERICAL') {
+    const corrNum = parseFloat(rawCorrect);
+    const userNum = parseFloat(userSelection);
+
+    if (!isNaN(corrNum) && !isNaN(userNum)) {
+      normalizedCorrect = String(corrNum);
+      normalizedUser = String(userNum);
+      isCorrect = Math.abs(userNum - corrNum) < 0.01;
+    } else {
+      normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+      normalizedUser = String(userSelection || '').trim().toLowerCase();
+      isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+    }
+  } else {
+    if (options.length > 0) {
+      const corrOpt = getOptionInfo(rawCorrect);
+      const userOpt = getOptionInfo(userSelection);
+
+      if (userSelection === undefined || userSelection === null || userSelection === '' || userSelection === 'Unanswered' || userOpt.raw === 'Unanswered') {
+        normalizedCorrect = corrOpt.index >= 0 ? `[Index ${corrOpt.index}] ${corrOpt.text}` : corrOpt.text;
+        normalizedUser = 'Unanswered';
+        isCorrect = false;
+      } else if (corrOpt.index >= 0 && userOpt.index >= 0) {
+        normalizedCorrect = `[Index ${corrOpt.index}] ${corrOpt.text}`;
+        normalizedUser = `[Index ${userOpt.index}] ${userOpt.text}`;
+        isCorrect = (corrOpt.index === userOpt.index);
+      } else {
+        normalizedCorrect = corrOpt.text.trim().toLowerCase();
+        normalizedUser = userOpt.text.trim().toLowerCase();
+        isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+      }
+    } else {
+      if (userSelection === undefined || userSelection === null || userSelection === '' || userSelection === 'Unanswered') {
+        normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+        normalizedUser = 'Unanswered';
+        isCorrect = false;
+      } else {
+        normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+        normalizedUser = String(userSelection || '').trim().toLowerCase();
+        isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+      }
+    }
+  }
+
+  const debugLog = {
+    questionId: qId,
+    type: qType,
+    correctAnswer: rawCorrect,
+    correctAnswerType: rawCorrectType,
+    userAnswer: userSelection !== undefined ? userSelection : 'Unanswered',
+    userAnswerType: rawUserType,
+    normalizedCorrect,
+    normalizedUser,
+    isCorrect
+  };
+
+  console.log(`[QUIZ EVALUATION DEBUG (CLIENT)]`, JSON.stringify(debugLog, null, 2));
+
+  return {
+    isCorrect,
+    debugLog,
+    normalizedCorrect,
+    normalizedUser
+  };
+}
+
 class QuizEvaluatorAgent {
 
   async evaluateDiagnostic(
@@ -562,94 +740,59 @@ class QuizEvaluatorAgent {
 
     // Build structured answers array with required fields
     let formattedQuestions = [];
+    let userAnswersMap = answersInput;
+    if (answersInput && typeof answersInput === 'object' && !Array.isArray(answersInput) && answersInput.answers) {
+      userAnswersMap = answersInput.answers;
+    }
 
     if (Array.isArray(answersInput)) {
       formattedQuestions = answersInput;
     } else if (domainObj && (domainObj.activeDiagnostics || domainObj.diagnostics)) {
       const qList = (domainObj.activeDiagnostics && domainObj.activeDiagnostics.length > 0) ? domainObj.activeDiagnostics : domainObj.diagnostics;
       formattedQuestions = qList.map((q, idx) => {
-        let userSelection = answersInput[q.id];
+        let userSelection = userAnswersMap[q.id];
         if (userSelection === undefined) {
-          userSelection = answersInput[idx] !== undefined ? answersInput[idx] : answersInput[`q_${idx + 1}`];
+          userSelection = userAnswersMap[idx] !== undefined ? userAnswersMap[idx] : userAnswersMap[`q_${idx + 1}`];
+        }
+
+        const evalRes = evaluateQuestionClient(q, userSelection);
+        const options = Array.isArray(q.options) ? q.options : [];
+
+        let correctText = '';
+        const rawCorr = q.correct !== undefined ? q.correct : q.correct_answer;
+        if (Array.isArray(rawCorr)) {
+          correctText = rawCorr.map(i => typeof i === 'number' && options[i] !== undefined ? options[i] : String(i)).join('; ');
+        } else if (typeof rawCorr === 'number' && options[rawCorr] !== undefined) {
+          correctText = options[rawCorr];
+        } else {
+          correctText = String(rawCorr !== undefined ? rawCorr : '');
         }
 
         let userAnswerText = 'Unanswered';
-        let isCorrect = false;
-        const qType = q.type || 'MCQ';
-
-        // 1. MSQ (Multiple Select Question)
-        if (qType === 'MSQ') {
-          let userArr = [];
+        if (userSelection !== undefined && userSelection !== null && userSelection !== '' && userSelection !== -1 && userSelection !== '-1') {
           if (Array.isArray(userSelection)) {
-            userArr = userSelection.map(Number).filter(n => !isNaN(n));
-          } else if (typeof userSelection === 'string' && userSelection.includes(',')) {
-            userArr = userSelection.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n));
-          } else if (userSelection !== undefined && userSelection !== null && userSelection !== -1 && userSelection !== '-1') {
-            userArr = [Number(userSelection)];
-          }
-
-          let correctArr = Array.isArray(q.correct) ? q.correct.map(Number) : [Number(q.correct)];
-
-          if (userArr.length > 0) {
-            userAnswerText = userArr.map(i => q.options[i] || `Option ${i + 1}`).join('; ');
-            const normUser = [...userArr].sort((a, b) => a - b).join(',');
-            const normCorr = [...correctArr].sort((a, b) => a - b).join(',');
-            isCorrect = normUser === normCorr;
+            userAnswerText = userSelection.map(i => typeof i === 'number' && options[i] !== undefined ? options[i] : String(i)).join('; ');
+          } else if (typeof userSelection === 'number' && options[userSelection] !== undefined) {
+            userAnswerText = options[userSelection];
           } else {
-            userAnswerText = 'Unanswered';
-            isCorrect = false;
+            userAnswerText = String(userSelection);
           }
         }
-        // 2. NUMERICAL Question
-        else if (qType === 'NUMERICAL') {
-          if (userSelection !== undefined && userSelection !== null && String(userSelection).trim() !== '') {
-            userAnswerText = String(userSelection).trim();
-            const userNum = parseFloat(userAnswerText);
-            const correctNum = parseFloat(q.correct);
-            if (!isNaN(userNum) && !isNaN(correctNum)) {
-              isCorrect = Math.abs(userNum - correctNum) < 0.01;
-            } else {
-              isCorrect = String(userAnswerText).toLowerCase() === String(q.correct).toLowerCase();
-            }
-          } else {
-            userAnswerText = 'Unanswered';
-            isCorrect = false;
-          }
-        }
-        // 3. MCQ / CODE_OUTPUT / ASSERTION / SCENARIO / CONCEPTUAL / APPLICATION
-        else {
-          if (userSelection !== undefined && userSelection !== null && userSelection !== -1 && userSelection !== '-1') {
-            const numIdx = Number(userSelection);
-            if (!isNaN(numIdx) && numIdx >= 0 && q.options && q.options[numIdx]) {
-              userAnswerText = q.options[numIdx];
-              isCorrect = (numIdx === Number(q.correct));
-            } else if (typeof userSelection === 'string' && userSelection.trim()) {
-              userAnswerText = userSelection.trim();
-              const expectedText = (q.options && q.options[q.correct]) ? q.options[q.correct] : String(q.correct);
-              isCorrect = (userAnswerText.toLowerCase() === String(expectedText).toLowerCase());
-            }
-          } else {
-            userAnswerText = 'Unanswered';
-            isCorrect = false;
-          }
-        }
-
-        const correctText = Array.isArray(q.correct)
-          ? q.correct.map(i => q.options[i]).join('; ')
-          : ((q.options && q.options[q.correct]) ? q.options[q.correct] : String(q.correct));
 
         return {
           id: q.id,
           question: q.question,
           codeSnippet: q.codeSnippet || null,
-          options: q.options || [],
-          type: qType,
+          options: options,
+          type: q.type || 'MCQ',
           topic: q.topic || 'General Knowledge',
           subtopic: q.subtopic || 'Core Concepts',
           difficulty: q.difficulty || 'INTERMEDIATE',
           user_answer: userAnswerText,
           correct_answer: correctText,
-          is_correct: isCorrect,
+          is_correct: evalRes.isCorrect,
+          normalized_correct: evalRes.normalizedCorrect,
+          normalized_user: evalRes.normalizedUser,
           explanation: q.explanation || ''
         };
       });

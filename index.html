@@ -174,24 +174,97 @@
 
     <!-- VIEW 1b: Domain Selection (Post-Registration) -->
     <section id="view-domain-selection" class="view-section">
-      <div class="glass-card">
-        <div class="section-title">
-          <i class="ph ph-compass"></i> Choose Your Learning Domain
+      <div class="domain-selection-layout">
+        <!-- Main Domain Cards Area -->
+        <div class="glass-card domain-selection-main">
+          <div class="section-title">
+            <i class="ph ph-compass"></i> Choose Your Learning Domain
+          </div>
+          <p class="section-subtitle" id="domain-selection-subtitle">Welcome! Select the tech domain you want to master. Your personalized roadmap will be built around this choice.</p>
+
+          <div id="domain-selection-grid" class="domain-grid" style="margin-top: 1.5rem;">
+            <!-- Dynamically populated by app.js -->
+          </div>
+
+          <div id="domain-select-error" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
+
+          <div style="margin-top: 2rem; text-align: right;">
+            <button type="button" id="confirm-domain-btn" class="btn btn-primary" style="padding: 0.8rem 2rem; font-size: 1rem;">
+              <i class="ph ph-arrow-right"></i> Continue with Selected Domain
+            </button>
+          </div>
         </div>
-        <p class="section-subtitle" id="domain-selection-subtitle">Welcome! Select the tech domain you want to master. Your personalized roadmap will be built around this choice.</p>
 
-        <div id="domain-selection-grid" class="domain-grid" style="margin-top: 1.5rem;">
-          <!-- Dynamically populated by app.js -->
-        </div>
+        <!-- AI Domain Assistant Side Panel / Widget -->
+        <div class="domain-assistant-wrapper">
+          <div id="domain-assistant-panel" class="domain-assistant-card glass-card">
+            <!-- Header -->
+            <div class="assistant-header">
+              <div class="assistant-title-group">
+                <div class="assistant-avatar">
+                  <i class="ph ph-sparkle"></i>
+                </div>
+                <div>
+                  <h4 class="assistant-title">AI Domain Advisor</h4>
+                  <div class="assistant-status">
+                    <span class="status-dot"></span> Online Assistant
+                  </div>
+                </div>
+              </div>
+              <div class="assistant-header-actions">
+                <button type="button" id="domain-chat-reset-btn" class="assistant-icon-btn" title="Reset Conversation" aria-label="Reset Conversation">
+                  <i class="ph ph-arrows-counter-clockwise"></i>
+                </button>
+                <button type="button" id="domain-chat-close-btn" class="assistant-icon-btn mobile-only" title="Close Panel" aria-label="Close Panel">
+                  <i class="ph ph-x"></i>
+                </button>
+              </div>
+            </div>
 
-        <div id="domain-select-error" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
+            <!-- Conversation Body -->
+            <div id="domain-chat-history" class="assistant-chat-body" role="log" aria-live="polite">
+              <!-- Initial Welcome Message -->
+              <div class="chat-message assistant-message">
+                <div class="message-avatar"><i class="ph ph-sparkle"></i></div>
+                <div class="message-content">
+                  <p>Hi! I can help you choose the right learning domain. What are you hoping to build or become good at?</p>
+                </div>
+              </div>
 
-        <div style="margin-top: 2rem; text-align: right;">
-          <button type="button" id="confirm-domain-btn" class="btn btn-primary" style="padding: 0.8rem 2rem; font-size: 1rem;">
-            <i class="ph ph-arrow-right"></i> Continue with Selected Domain
-          </button>
+              <!-- Quick Suggestion Chips -->
+              <div id="domain-chat-chips" class="chat-chips-container">
+                <button type="button" class="chat-chip" data-prompt="I want to build websites and web applications.">🌐 Build Websites & Web Apps</button>
+                <button type="button" class="chat-chip" data-prompt="I want to analyze data and build machine learning models.">📊 Data & AI Models</button>
+                <button type="button" class="chat-chip" data-prompt="I want to learn ethical hacking and penetration testing.">🛡️ Ethical Hacking & Cyber</button>
+                <button type="button" class="chat-chip" data-prompt="I want to manage AWS cloud systems and DevOps pipelines.">☁️ AWS Cloud & DevOps</button>
+                <button type="button" class="chat-chip" data-prompt="I want to build mobile apps for iOS and Android.">📱 Mobile Apps (React Native/Flutter)</button>
+              </div>
+            </div>
+
+            <!-- Typing Indicator (Hidden by default) -->
+            <div id="domain-chat-typing" class="typing-indicator" style="display: none;">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <span>AI is thinking...</span>
+            </div>
+
+            <!-- Input Form -->
+            <form id="domain-chat-form" class="assistant-input-area" onsubmit="return false;">
+              <input type="text" id="domain-chat-input" class="assistant-input" placeholder="Type your goal (e.g. 'I want to build web apps')..." autocomplete="off" aria-label="Chat input for domain assistant" />
+              <button type="submit" id="domain-chat-send-btn" class="assistant-send-btn" aria-label="Send message">
+                <i class="ph ph-paper-plane-right"></i>
+              </button>
+            </form>
+          </div>
         </div>
       </div>
+
+      <!-- Mobile Floating Assistant Toggle FAB -->
+      <button type="button" id="domain-chat-fab" class="assistant-fab" title="AI Domain Assistant" aria-label="Toggle AI Domain Assistant">
+        <i class="ph ph-sparkle"></i>
+        <span class="fab-badge">AI</span>
+      </button>
     </section>
 
     <!-- VIEW 2: Diagnostic Quiz Phase -->
@@ -291,12 +364,27 @@
                 <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
                   <i class="ph ph-note-pencil" style="color: var(--accent-violet); font-size: 1.2rem;"></i> Take Technical Diagnostic Quiz
                 </div>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.4;">
-                  Validate your declared baseline with a short diagnostic test covering multiple question types across key topics.
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.8rem; line-height: 1.4;">
+                  Validate your baseline with an AI-generated diagnostic test covering multiple question types tailored to your domain & level.
                 </p>
+
+                <!-- QUESTION COUNT SELECTION -->
+                <div style="margin-bottom: 1rem; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.8rem; border-radius: 8px;">
+                  <label style="display: block; font-size: 0.8rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">
+                    <i class="ph ph-list-numbers" style="color: var(--accent-cyan);"></i> Select Number of Questions:
+                  </label>
+                  <div id="quiz-question-count-pills" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                    <button type="button" class="quiz-count-pill" data-count="5">5 Qs</button>
+                    <button type="button" class="quiz-count-pill active" data-count="10">10 Qs</button>
+                    <button type="button" class="quiz-count-pill" data-count="15">15 Qs</button>
+                    <button type="button" class="quiz-count-pill" data-count="20">20 Qs</button>
+                    <button type="button" class="quiz-count-pill" data-count="25">25 Qs</button>
+                    <button type="button" class="quiz-count-pill" data-count="30">30 Qs</button>
+                  </div>
+                </div>
               </div>
               <button type="button" id="start-diagnostic-quiz-btn" class="btn btn-primary" style="width: 100%; justify-content: center;">
-                <i class="ph ph-play"></i> Take Diagnostic Quiz
+                <i class="ph ph-play"></i> Generate <span id="quiz-count-btn-label">10-Question</span> Quiz
               </button>
             </div>
 

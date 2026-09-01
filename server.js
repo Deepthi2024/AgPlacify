@@ -6,6 +6,7 @@
 
 require('dotenv').config();
 
+const Groq = require('groq-sdk');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -2281,6 +2282,408 @@ const server = http.createServer(async (req, res) => {
 
 
   // ==========================================================
+  // ==========================================================
+  // 9b. AI DOMAIN ASSISTANT (GROQ SDK MULTI-TURN AI)
+  // POST /api/domain-assistant
+  // ==========================================================
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/domain-assistant'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const messages = body.messages || [];
+
+      console.log('[Domain Assistant] Received request with', messages.length, 'messages');
+
+      // Canonical Application Domains List
+      const CANONICAL_DOMAINS_MAP = [
+        { id: 'fullstack', name: 'Full-Stack Web Development', icon: 'ph-code-block', description: 'Master Modern Web Architecture: JavaScript Internals, REST & GraphQL APIs, React VDOM, SQL/NoSQL Databases, Web Security, and High-Concurrency Backend Engineering.' },
+        { id: 'datascience', name: 'Data Science & Machine Learning', icon: 'ph-brain', description: 'Master Exploratory Data Analysis, Supervised & Unsupervised Learning, Feature Engineering, Neural Networks, PyTorch, and MLOps.' },
+        { id: 'dsa', name: 'Data Structures & Algorithms (Interview Prep)', icon: 'ph-tree-structure', description: 'Master Problem Solving, Arrays, Linked Lists, Trees, Graphs, Dynamic Programming, and High-Performance Algorithm Optimization for FAANG/Product Company Interviews.' },
+        { id: 'devops', name: 'Cloud Engineering & DevOps', icon: 'ph-cloud-tower', description: 'Master Cloud Infrastructure: AWS Services, Docker Containerization, Kubernetes Orchestration, Infrastructure as Code (Terraform), and CI/CD Pipelines.' },
+        { id: 'cybersecurity', name: 'Cybersecurity & Ethical Hacking', icon: 'ph-shield-checkered', description: 'Master Information Security: Network Pentesting, OWASP Top 10 Web Vulnerabilities, Cryptography, Incident Response, and Security Compliance.' },
+        { id: 'mobile', name: 'Mobile App Development (React Native & Flutter)', icon: 'ph-device-mobile', description: 'Master Cross-Platform & Native Mobile Engineering: React Native, Flutter/Dart, Mobile UI Components, Device APIs, Offline Storage, and App Store Publishing.' },
+        { id: 'ai_llm', name: 'AI & LLM Systems Engineering', icon: 'ph-sparkle', description: 'Master Generative AI Architecture: Prompt Engineering, RAG Systems, Vector Databases (Pinecone/Chroma), Fine-Tuning LLMs, and AI Agent Orchestration.' },
+        { id: 'system_design', name: 'System Design & Distributed Architecture', icon: 'ph-cpu', description: 'Master Scalable Systems: Microservices, Distributed Caching, Message Queues (Kafka/RabbitMQ), Database Sharding, Load Balancing, and High Availability.' }
+      ];
+
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) {
+        console.error('[Domain Assistant] GROQ_API_KEY is missing from environment.');
+        return sendJSON(res, 500, {
+          error: 'GROQ_API_KEY is not configured on server.',
+          reply: "I'm having trouble connecting to the AI assistant right now. You can still choose a domain manually from the options below."
+        });
+      }
+
+      console.log('[Domain Assistant] Calling Groq API via Groq SDK...');
+      const groqClient = new Groq({ apiKey });
+
+      const systemMessage = {
+        role: 'system',
+        content: `You are the AI Domain Selection Advisor for AgPlacify.
+Your sole goal is to help users select the best tech learning domain from the EXACT 8 CANONICAL APPLICATION DOMAINS listed below.
+
+The 8 Canonical Domains are:
+1. "fullstack" -> "Full-Stack Web Development" (Websites, React, Node.js, REST APIs, Databases, Web Security)
+2. "datascience" -> "Data Science & Machine Learning" (Data analysis, ML models, Pandas, PyTorch, Statistics, Predictive Modeling)
+3. "dsa" -> "Data Structures & Algorithms (Interview Prep)" (LeetCode, Algorithms, Data Structures, Problem Solving, Tech Interviews)
+4. "devops" -> "Cloud Engineering & DevOps" (AWS, Cloud, Docker, Kubernetes, Terraform, CI/CD, Deployment Automation)
+5. "cybersecurity" -> "Cybersecurity & Ethical Hacking" (Penetration testing, Ethical hacking, OWASP, Vulnerabilities, Security)
+6. "mobile" -> "Mobile App Development (React Native & Flutter)" (iOS, Android, Flutter, React Native, Cross-platform Mobile Apps)
+7. "ai_llm" -> "AI & LLM Systems Engineering" (Generative AI, LLMs, RAG, Prompt Engineering, LangChain, Vector Databases)
+8. "system_design" -> "System Design & Distributed Architecture" (Distributed Systems, Microservices, Scalability, High Availability, Load Balancing)
+
+CRITICAL CONVERSATIONAL INSTRUCTIONS:
+1. Do NOT invent domain names outside of these 8 canonical domains.
+2. Maintain a friendly, engaging, encouraging tone.
+3. If the user's input is general or broad (e.g. "I like AI", "I don't know", "Hi"), generate a natural follow-up question to ask what part of AI, data, software, or systems interests them. Do NOT return a hardcoded generic welcome message. Do NOT recommend a domain yet.
+4. When the user provides enough specific detail or after 2-3 turns of specific discussion, generate a contextual response, state your domain recommendation clearly in "reply", and return the structured "recommendation" object.
+5. Return ONLY valid JSON matching this exact JSON schema:
+
+{
+  "reply": "Contextual assistant text response tailored specifically to the user's messages.",
+  "recommendation": {
+    "recommendedDomain": "Exact domain name from the 8 canonical domains list above",
+    "recommendedDomainId": "exact domain id from list (fullstack, datascience, dsa, devops, cybersecurity, mobile, ai_llm, system_design)",
+    "confidence": 0.95,
+    "reason": "Short clear explanation of why this domain fits their goals.",
+    "alternatives": [
+      { "id": "alternative_domain_id", "name": "Exact alternative domain name" }
+    ]
+  },
+  "isComplete": true or false
+}
+
+Note: If you are asking a follow-up question or if confidence is low, set "recommendation": null and "isComplete": false.`
+      };
+
+      // Format complete conversation history in chronological order
+      const formattedHistory = messages.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }));
+
+      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+
+      let completion;
+      try {
+        completion = await groqClient.chat.completions.create({
+          messages: [systemMessage, ...formattedHistory],
+          model: model,
+          response_format: { type: 'json_object' },
+          temperature: 0.6,
+          max_tokens: 1024
+        });
+      } catch (firstErr) {
+        if (firstErr.status === 429 || (firstErr.message && firstErr.message.includes('429'))) {
+          console.warn('[Domain Assistant] 429 Rate Limit hit. Retrying in 600ms...');
+          await new Promise(r => setTimeout(r, 600));
+          completion = await groqClient.chat.completions.create({
+            messages: [systemMessage, ...formattedHistory],
+            model: model,
+            response_format: { type: 'json_object' },
+            temperature: 0.6,
+            max_tokens: 1024
+          });
+        } else {
+          throw firstErr;
+        }
+      }
+
+      console.log('[Domain Assistant] Groq response received');
+      const responseContent = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(responseContent);
+
+      // Validate and enrich recommendation if present
+      if (parsed.recommendation && parsed.recommendation.recommendedDomainId) {
+        const validDom = CANONICAL_DOMAINS_MAP.find(d =>
+          d.id === parsed.recommendation.recommendedDomainId ||
+          d.name.toLowerCase() === (parsed.recommendation.recommendedDomain || '').toLowerCase()
+        );
+        if (validDom) {
+          parsed.recommendation.recommendedDomainId = validDom.id;
+          parsed.recommendation.recommendedDomain = validDom.name;
+          parsed.recommendation.icon = validDom.icon;
+          parsed.recommendation.description = validDom.description;
+        } else {
+          parsed.recommendation = null;
+          parsed.isComplete = false;
+        }
+      }
+
+      return sendJSON(res, 200, parsed);
+
+    } catch (err) {
+      console.error('[Domain Assistant] Groq API Error:', err.message);
+      return sendJSON(res, 500, {
+        error: 'Failed to generate response from Groq.',
+        reply: "I'm having trouble connecting to the AI assistant right now. You can still choose a domain manually from the options below."
+      });
+    }
+  }
+
+  // ==========================================================
+  // 9c. DYNAMIC QUIZ GENERATION (GROQ AI MULTI-TYPE)
+  // POST /api/quiz/generate
+  // ==========================================================
+
+  // In-memory active quiz store for session persistence
+  if (!global.activeQuizStore) {
+    global.activeQuizStore = new Map();
+  }
+
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/quiz/generate'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const { userId, questionCount: reqCount, domain: bodyDomain, level: bodyLevel, forceNew } = body;
+
+      // 1. Retrieve User from Database to get authoritative domain and level
+      let userDoc = null;
+      if (userId && mongoose.connection.readyState === 1) {
+        try {
+          const User = mongoose.model('User');
+          userDoc = await User.findOne({ user_id: userId });
+        } catch (e) {
+          console.warn('[Quiz Gen] User lookup notice:', e.message);
+        }
+      }
+
+      // Canonical Domain & Level Resolution
+      const domainId = (userDoc && userDoc.chosen_domain) || bodyDomain || 'fullstack';
+      const initialLevel = bodyLevel || 'BEGINNER';
+      const questionCount = Math.min(50, Math.max(5, parseInt(reqCount, 10) || 10));
+
+      const domainNameMap = {
+        fullstack: 'Full-Stack Web Development',
+        datascience: 'Data Science & Machine Learning',
+        dsa: 'Data Structures & Algorithms (Interview Prep)',
+        devops: 'Cloud Engineering & DevOps',
+        cybersecurity: 'Cybersecurity & Ethical Hacking',
+        mobile: 'Mobile App Development (React Native & Flutter)',
+        ai_llm: 'AI & LLM Systems Engineering',
+        system_design: 'System Design & Distributed Architecture'
+      };
+      const canonicalDomainName = domainNameMap[domainId] || domainId;
+
+      // Check if user already has an active quiz and forceNew is false
+      if (userId && !forceNew && global.activeQuizStore.has(userId)) {
+        const existingQuiz = global.activeQuizStore.get(userId);
+        if (existingQuiz && existingQuiz.domainId === domainId && existingQuiz.questionCount === questionCount) {
+          console.log(`[QUIZ GENERATION] Returning existing active quiz for userId: ${userId} (${existingQuiz.quizId})`);
+          return sendJSON(res, 200, existingQuiz);
+        }
+      }
+
+      const randomSeed = crypto.randomBytes(8).toString('hex');
+
+      console.log(`[QUIZ GENERATION]`);
+      console.log(`userId: ${userId}`);
+      console.log(`domain: ${canonicalDomainName} (${domainId})`);
+      console.log(`level: ${initialLevel}`);
+      console.log(`requestedQuestionCount: ${questionCount}`);
+      console.log(`randomSeed: ${randomSeed}`);
+
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) {
+        return sendJSON(res, 500, { error: 'GROQ_API_KEY is not configured on server.' });
+      }
+
+      const groqClient = new Groq({ apiKey });
+      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+
+      const systemPrompt = `You are the Expert Technical Quiz Generator for AgPlacify.
+Your job is to generate a dynamic, diagnostic technical quiz for a learner.
+
+AUTHORITATIVE PARAMETERS:
+- DOMAIN: "${canonicalDomainName}" (${domainId})
+- DIFFICULTY LEVEL: "${initialLevel}"
+- EXACT QUESTION COUNT: ${questionCount}
+- RANDOM SEED: "${randomSeed}"
+
+CRITICAL MANDATORY RULES:
+1. You MUST generate EXACTLY ${questionCount} question items inside the "questions" array.
+2. EVERY question MUST include an "options" array containing EXACTLY 4 distinct choice options e.g. ["<p>", "<div>", "<span>", "<section>"] or ["Option A", "Option B", "Option C", "Option D"]. Do NOT leave "options" empty.
+3. The "correct" field MUST be the 0-based integer index of the correct option (0, 1, 2, or 3), or an array e.g. [0, 2] for MSQ questions.
+4. Difficulty of ALL questions must match "${initialLevel}".
+
+Return ONLY valid JSON matching this exact JSON schema:
+{
+  "questions": [
+    {
+      "id": "q_1",
+      "question": "Which HTML tag is used for a paragraph?",
+      "codeSnippet": null,
+      "type": "MCQ",
+      "topic": "HTML",
+      "subtopic": "Basic Tags",
+      "difficulty": "${initialLevel}",
+      "options": ["<p>", "<div>", "<span>", "<section>"],
+      "correct": 0,
+      "explanation": "The <p> tag defines a paragraph in HTML."
+    }
+  ]
+}`;
+
+      let generatedQuestions = [];
+      let attempts = 0;
+      const MAX_ATTEMPTS = 6;
+
+      while (generatedQuestions.length < questionCount && attempts < MAX_ATTEMPTS) {
+        const remainingNeeded = questionCount - generatedQuestions.length;
+        const fetchSize = Math.min(10, Math.max(5, remainingNeeded));
+        try {
+          console.log(`[Quiz Gen] Attempt ${attempts + 1}: Fetching batch of ${fetchSize} questions (Currently have ${generatedQuestions.length}/${questionCount})...`);
+
+          let completion;
+          try {
+            completion = await groqClient.chat.completions.create({
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Generate a JSON object with a "questions" array containing EXACTLY ${fetchSize} unique ${initialLevel} level questions for ${canonicalDomainName}. EVERY question MUST have an "options" array with 4 options. Seed: ${randomSeed}_att${attempts}` }
+              ],
+              model: model,
+              response_format: { type: 'json_object' },
+              temperature: 0.6,
+              max_tokens: 3500
+            });
+          } catch (apiErr) {
+            if (apiErr.status === 429 || (apiErr.message && apiErr.message.includes('429'))) {
+              console.warn('[Quiz Gen] 429 Rate Limit hit. Retrying in 3000ms...');
+              await new Promise(r => setTimeout(r, 3000));
+              completion = await groqClient.chat.completions.create({
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: `Generate a JSON object with a "questions" array containing EXACTLY ${fetchSize} unique ${initialLevel} level questions for ${canonicalDomainName}. EVERY question MUST have an "options" array with 4 options. Seed: ${randomSeed}_att${attempts}_retry` }
+                ],
+                model: model,
+                response_format: { type: 'json_object' },
+                temperature: 0.6,
+                max_tokens: 3500
+              });
+            } else {
+              throw apiErr;
+            }
+          }
+
+          const rawContent = completion.choices[0]?.message?.content || '{}';
+          console.log('[Quiz Gen] RAW API RESPONSE:\n', rawContent);
+
+          let parsed = null;
+          try {
+            let cleanStr = rawContent.trim();
+            if (cleanStr.startsWith('```')) {
+              cleanStr = cleanStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+            }
+            const firstBrace = cleanStr.indexOf('{');
+            const lastBrace = cleanStr.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+              cleanStr = cleanStr.substring(firstBrace, lastBrace + 1);
+            }
+            parsed = JSON.parse(cleanStr);
+          } catch (jsonErr) {
+            console.warn('[Quiz Gen] Failed to parse JSON response:', jsonErr.message);
+          }
+
+          console.log(`Generated question count: ${parsed && Array.isArray(parsed.questions) ? parsed.questions.length : 0}`);
+          console.log(`Requested question count: ${questionCount}`);
+          console.log(`Domain: ${canonicalDomainName} (${domainId})`);
+          console.log(`Level: ${initialLevel}`);
+          console.log(`Questions:`, JSON.stringify(parsed && parsed.questions ? parsed.questions : [], null, 2));
+
+          if (parsed && Array.isArray(parsed.questions)) {
+            const validNew = parsed.questions.filter(q => {
+              if (!q || !q.question || typeof q.question !== 'string' || !q.question.trim()) return false;
+              return Array.isArray(q.options) && q.options.length >= 2;
+            });
+
+            for (const q of validNew) {
+              if (generatedQuestions.length >= questionCount) break;
+              // Prevent duplicates
+              const isDup = generatedQuestions.some(existing => existing.question.trim().toLowerCase() === q.question.trim().toLowerCase());
+              if (!isDup) {
+                generatedQuestions.push({
+                  id: q.id || `q_${generatedQuestions.length + 1}_${Date.now()}`,
+                  question: q.question.trim(),
+                  codeSnippet: q.codeSnippet || null,
+                  type: q.type || 'MCQ',
+                  topic: q.topic || 'Core Knowledge',
+                  subtopic: q.subtopic || 'Foundations',
+                  difficulty: initialLevel,
+                  options: Array.isArray(q.options) ? q.options : [],
+                  correct: q.correct !== undefined ? q.correct : (q.correct_answer !== undefined ? q.correct_answer : 0),
+                  explanation: q.explanation || ''
+                });
+              }
+            }
+          }
+        } catch (retryErr) {
+          console.warn(`[Quiz Gen] Attempt ${attempts + 1} error:`, retryErr.message);
+          await new Promise(r => setTimeout(r, 600));
+        }
+        attempts++;
+      }
+
+      console.log(`[QUIZ GENERATION] generatedQuestionCount: ${generatedQuestions.length}`);
+      console.log(`[QUIZ GENERATION] validatedQuestionCount: ${generatedQuestions.length}`);
+
+      if (generatedQuestions.length !== questionCount) {
+        return sendJSON(res, 500, {
+          error: `Failed to generate exactly ${questionCount} questions (generated ${generatedQuestions.length}). Please try again.`
+        });
+      }
+
+      const quizId = `quiz_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const quizPayload = {
+        quizId,
+        userId: userId || 'guest',
+        domain: canonicalDomainName,
+        domainId,
+        level: initialLevel,
+        questionCount,
+        randomSeed,
+        questions: generatedQuestions,
+        status: 'ACTIVE',
+        createdAt: new Date().toISOString()
+      };
+
+      if (userId) {
+        global.activeQuizStore.set(userId, quizPayload);
+      }
+
+      return sendJSON(res, 200, quizPayload);
+
+    } catch (err) {
+      console.error('[Quiz Gen] Failed to generate quiz:', err.message);
+      return sendJSON(res, 500, {
+        error: 'Failed to generate quiz from AI backend.',
+        message: err.message
+      });
+    }
+  }
+
+  // ==========================================================
+  // 9d. GET ACTIVE QUIZ
+  // GET /api/quiz/active/:userId
+  // ==========================================================
+  if (
+    req.method === 'GET' &&
+    parsedUrl.pathname.startsWith('/api/quiz/active/')
+  ) {
+    const uId = parsedUrl.pathname.replace('/api/quiz/active/', '').trim();
+    if (uId && global.activeQuizStore && global.activeQuizStore.has(uId)) {
+      return sendJSON(res, 200, global.activeQuizStore.get(uId));
+    }
+    return sendJSON(res, 404, { error: 'No active quiz found' });
+  }
+
+
+  // ==========================================================
   // 10. REGISTER USER
   // POST /api/auth/register
   // ==========================================================
@@ -2846,7 +3249,191 @@ const server = http.createServer(async (req, res) => {
   // ==========================================================
   // 11b. QUIZ EVALUATION AGENT ENDPOINT
   // POST /api/quiz/evaluate
-  // ==========================================================
+  // Canonical Quiz Evaluation Engine Helper
+  function evaluateQuestionServer(q, userSelectionInput) {
+    const qId = q.id || q._id || 'unknown';
+    const qType = (q.type || 'MCQ').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+    const options = Array.isArray(q.options) ? q.options : [];
+    const rawCorrect = q.correct !== undefined ? q.correct : q.correct_answer;
+
+    let userSelection = userSelectionInput;
+    if (userSelection === undefined && q.user_answer !== undefined) {
+      userSelection = q.user_answer;
+    }
+    if (userSelection === undefined && q.userAnswer !== undefined) {
+      userSelection = q.userAnswer;
+    }
+
+    const rawCorrectType = Array.isArray(rawCorrect) ? 'array' : typeof rawCorrect;
+    const rawUserType = Array.isArray(userSelection) ? 'array' : typeof userSelection;
+
+    let isCorrect = false;
+    let normalizedCorrect = '';
+    let normalizedUser = '';
+
+    function getOptionInfo(val) {
+      if (val === undefined || val === null || val === '' || val === 'Unanswered') {
+        return { index: -1, text: '', raw: 'Unanswered' };
+      }
+      if (typeof val === 'number' && !isNaN(val)) {
+        const idx = Math.floor(val);
+        if (idx >= 0 && options[idx] !== undefined) {
+          return { index: idx, text: String(options[idx]), raw: String(val) };
+        }
+        return { index: idx, text: String(val), raw: String(val) };
+      }
+
+      const strVal = String(val).trim();
+      if (!strVal || strVal === 'Unanswered') {
+        return { index: -1, text: '', raw: 'Unanswered' };
+      }
+
+      if (/^\d+$/.test(strVal)) {
+        const idx = parseInt(strVal, 10);
+        if (idx >= 0 && options[idx] !== undefined) {
+          return { index: idx, text: String(options[idx]), raw: strVal };
+        }
+      }
+
+      if (/^[a-zA-Z]$/.test(strVal)) {
+        const idx = strVal.toUpperCase().charCodeAt(0) - 65;
+        if (idx >= 0 && idx < options.length) {
+          return { index: idx, text: String(options[idx]), raw: strVal };
+        }
+      }
+
+      if (options.length > 0) {
+        const matchedIdx = options.findIndex(opt => String(opt).trim().toLowerCase() === strVal.toLowerCase());
+        if (matchedIdx !== -1) {
+          return { index: matchedIdx, text: String(options[matchedIdx]), raw: strVal };
+        }
+      }
+
+      return { index: -1, text: strVal, raw: strVal };
+    }
+
+    // 1. MSQ / MULTIPLE SELECT
+    if (qType === 'MSQ' || qType === 'MULTIPLE_SELECT' || qType === 'MULTIPLE_CHOICE_MULTI') {
+      let corrArray = [];
+      if (Array.isArray(rawCorrect)) {
+        corrArray = rawCorrect;
+      } else if (typeof rawCorrect === 'string' && rawCorrect.trim()) {
+        corrArray = rawCorrect.split(/;|,/).map(s => s.trim()).filter(Boolean);
+      } else if (rawCorrect !== undefined && rawCorrect !== null) {
+        corrArray = [rawCorrect];
+      }
+
+      let userArray = [];
+      if (Array.isArray(userSelection)) {
+        userArray = userSelection;
+      } else if (typeof userSelection === 'string' && userSelection.trim() && userSelection !== 'Unanswered') {
+        userArray = userSelection.split(/;|,/).map(s => s.trim()).filter(Boolean);
+      } else if (userSelection !== undefined && userSelection !== null && userSelection !== 'Unanswered') {
+        userArray = [userSelection];
+      }
+
+      const normCorrSet = corrArray.map(getOptionInfo).filter(i => i.raw !== 'Unanswered');
+      const normUserSet = userArray.map(getOptionInfo).filter(i => i.raw !== 'Unanswered');
+
+      const corrKeys = normCorrSet.map(i => i.index >= 0 ? `idx:${i.index}` : `txt:${i.text.toLowerCase()}`).sort();
+      const userKeys = normUserSet.map(i => i.index >= 0 ? `idx:${i.index}` : `txt:${i.text.toLowerCase()}`).sort();
+
+      normalizedCorrect = corrKeys.join(', ');
+      normalizedUser = userKeys.join(', ');
+
+      if (userKeys.length > 0 && userKeys.length === corrKeys.length) {
+        isCorrect = userKeys.every((val, idx) => val === corrKeys[idx]);
+      } else {
+        isCorrect = false;
+      }
+    }
+    // 2. TRUE_FALSE
+    else if (qType === 'TRUE_FALSE' || qType === 'TRUE/FALSE' || qType === 'BOOLEAN') {
+      const parseBool = (val) => {
+        if (val === true) return 'true';
+        if (val === false) return 'false';
+        if (val === undefined || val === null || val === '' || val === 'Unanswered') return '';
+        const str = String(val).trim().toLowerCase();
+        if (str === 'true' || str === 't' || str === '1' || str === 'yes') return 'true';
+        if (str === 'false' || str === 'f' || str === '0' || str === 'no') return 'false';
+        const info = getOptionInfo(val);
+        if (info.text.toLowerCase().includes('true')) return 'true';
+        if (info.text.toLowerCase().includes('false')) return 'false';
+        return str;
+      };
+
+      normalizedCorrect = parseBool(rawCorrect);
+      normalizedUser = parseBool(userSelection);
+      isCorrect = (normalizedUser !== '' && normalizedUser === normalizedCorrect);
+    }
+    // 3. NUMERICAL
+    else if (qType === 'NUMERICAL') {
+      const corrNum = parseFloat(rawCorrect);
+      const userNum = parseFloat(userSelection);
+
+      if (!isNaN(corrNum) && !isNaN(userNum)) {
+        normalizedCorrect = String(corrNum);
+        normalizedUser = String(userNum);
+        isCorrect = Math.abs(userNum - corrNum) < 0.01;
+      } else {
+        normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+        normalizedUser = String(userSelection || '').trim().toLowerCase();
+        isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+      }
+    }
+    // 4. MCQ / CODE_OUTPUT / SCENARIO / CONCEPTUAL / FILL_BLANK / SHORT_ANSWER
+    else {
+      if (options.length > 0) {
+        const corrOpt = getOptionInfo(rawCorrect);
+        const userOpt = getOptionInfo(userSelection);
+
+        if (userSelection === undefined || userSelection === null || userSelection === '' || userSelection === 'Unanswered' || userOpt.raw === 'Unanswered') {
+          normalizedCorrect = corrOpt.index >= 0 ? `[Index ${corrOpt.index}] ${corrOpt.text}` : corrOpt.text;
+          normalizedUser = 'Unanswered';
+          isCorrect = false;
+        } else if (corrOpt.index >= 0 && userOpt.index >= 0) {
+          normalizedCorrect = `[Index ${corrOpt.index}] ${corrOpt.text}`;
+          normalizedUser = `[Index ${userOpt.index}] ${userOpt.text}`;
+          isCorrect = (corrOpt.index === userOpt.index);
+        } else {
+          normalizedCorrect = corrOpt.text.trim().toLowerCase();
+          normalizedUser = userOpt.text.trim().toLowerCase();
+          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+        }
+      } else {
+        if (userSelection === undefined || userSelection === null || userSelection === '' || userSelection === 'Unanswered') {
+          normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+          normalizedUser = 'Unanswered';
+          isCorrect = false;
+        } else {
+          normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
+          normalizedUser = String(userSelection || '').trim().toLowerCase();
+          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+        }
+      }
+    }
+
+    const debugLog = {
+      questionId: qId,
+      type: qType,
+      correctAnswer: rawCorrect,
+      correctAnswerType: rawCorrectType,
+      userAnswer: userSelection !== undefined ? userSelection : 'Unanswered',
+      userAnswerType: rawUserType,
+      normalizedCorrect,
+      normalizedUser,
+      isCorrect
+    };
+
+    console.log(`[QUIZ EVALUATION DEBUG (SERVER)]`, JSON.stringify(debugLog, null, 2));
+
+    return {
+      isCorrect,
+      debugLog,
+      normalizedCorrect,
+      normalizedUser
+    };
+  }
 
   if (
     req.method === 'POST' &&
@@ -2941,9 +3528,37 @@ const server = http.createServer(async (req, res) => {
       } else {
         totalQuestions = answers.length;
         answers.forEach(q => {
-          const isCorrect = (q.user_answer !== undefined && q.user_answer !== null && q.user_answer !== 'Unanswered') &&
-            (String(q.user_answer).trim() === String(q.correct_answer).trim());
-          
+          let isCorrect = false;
+          let debugLog = null;
+          let normCorr = '';
+          let normUser = '';
+
+          if (q.is_correct !== undefined && typeof q.is_correct === 'boolean' && q.normalized_correct !== undefined) {
+            // Already pre-evaluated by frontend agent with full normalization metadata
+            isCorrect = q.is_correct;
+            normCorr = q.normalized_correct || String(q.correct_answer || '');
+            normUser = q.normalized_user || String(q.user_answer || '');
+            debugLog = {
+              questionId: q.id || 'unknown',
+              type: q.type || 'MCQ',
+              correctAnswer: q.correct_answer,
+              correctAnswerType: typeof q.correct_answer,
+              userAnswer: q.user_answer,
+              userAnswerType: typeof q.user_answer,
+              normalizedCorrect: normCorr,
+              normalizedUser: normUser,
+              isCorrect: isCorrect
+            };
+            console.log(`[QUIZ EVALUATION DEBUG (SERVER REUSE)]`, JSON.stringify(debugLog, null, 2));
+          } else {
+            // Server-side canonical evaluation helper
+            const result = evaluateQuestionServer(q, q.user_answer !== undefined ? q.user_answer : q.userSelection);
+            isCorrect = result.isCorrect;
+            debugLog = result.debugLog;
+            normCorr = result.normalizedCorrect;
+            normUser = result.normalizedUser;
+          }
+
           if (isCorrect) {
             correctCount++;
           }
@@ -2969,11 +3584,13 @@ const server = http.createServer(async (req, res) => {
             correct_answer: q.correct_answer,
             topic: topic,
             difficulty: q.difficulty || 'INTERMEDIATE',
-            is_correct: isCorrect
+            is_correct: isCorrect,
+            normalized_correct: normCorr,
+            normalized_user: normUser
           });
         });
 
-        scorePct = Math.round((correctCount / totalQuestions) * 100);
+        scorePct = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
 
         if (scorePct >= 80) {
           finalSkillLevel = 'ADVANCED';
@@ -3036,18 +3653,24 @@ const server = http.createServer(async (req, res) => {
 
       await evaluationDoc.save();
 
-      // Update current_skill_level and set quiz_completed: true in MongoDB Registration collection
+      // Clear user active quiz from in-memory session store if present
+      if (user_id && global.activeQuizStore) {
+        global.activeQuizStore.delete(user_id);
+      }
+
+      // Update current_skill_level, quiz_completed: true, and quiz_score in MongoDB Registration collection
       let updatedUser = await User.findOneAndUpdate(
         { user_id },
         {
           current_skill_level: finalSkillLevel,
           quiz_completed: true,
+          quiz_score: scorePct,
           roadmap_status: 'ROADMAP_REQUIRED'
         },
         { new: true }
       );
 
-      console.log(`✅ Saved Quiz Evaluation for user ${user_id}: ${scorePct}% (${skillLevel}) with ${topicEvaluations.length} topic evaluations. Set quiz_completed = true.`);
+      console.log(`✅ Saved Quiz Evaluation for user ${user_id}: ${scorePct}% (${finalSkillLevel}) with ${topicEvaluations.length} topic evaluations. Set quiz_completed = true.`);
 
       return sendJSON(res, 200, {
         message: 'Quiz evaluation successfully calculated and persisted to MongoDB Atlas.',
@@ -3056,10 +3679,16 @@ const server = http.createServer(async (req, res) => {
           user_id,
           domain: resolvedDomain,
           score_pct: scorePct,
+          scorePct: scorePct,
           correct_count: correctCount,
+          correctCount: correctCount,
           total_questions: totalQuestions,
-          skill_level: skillLevel,
+          totalQuestions: totalQuestions,
+          skill_level: finalSkillLevel,
+          skillLevel: finalSkillLevel,
+          skillTier: finalSkillLevel,
           level_description: levelDescription,
+          levelDescription: levelDescription,
           mastered_topics: masteredTopics,
           knowledge_gaps: knowledgeGaps,
           topic_evaluations: topicEvaluations,
