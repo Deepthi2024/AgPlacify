@@ -14,6 +14,11 @@ const crypto = require('crypto');
 const url = require('url');
 const mongoose = require('mongoose');
 
+const { getKnowledgeGraph, getAllSkillsInGraph } = require('./engine/knowledgeGraph');
+const { buildUserSkillProfile, updateSkillMastery } = require('./engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap } = require('./engine/roadmapPlanner');
+const { recalculateAdaptiveRoadmap } = require('./engine/adaptiveEngine');
+
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -206,6 +211,54 @@ const QuizEvaluation = mongoose.model('QuizEvaluation', quizEvaluationSchema, 'q
 
 
 // ============================================================
+// 3b2. USER SKILL PROFILE SCHEMA & MODEL
+// ============================================================
+
+const userSkillProfileSchema = new mongoose.Schema(
+  {
+    user_id: {
+      type: String,
+      required: true,
+      index: true,
+      unique: true
+    },
+    domain: {
+      type: String,
+      required: true
+    },
+    skills: [
+      {
+        skillId: String,
+        topic: String,
+        subtopic: String,
+        skillName: String,
+        masteryScore: Number,
+        confidence: Number,
+        evidence: {
+          correct: Number,
+          total: Number
+        },
+        level: String,
+        lastAssessedAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    collection: 'user_skill_profiles'
+  }
+);
+
+const UserSkillProfile = mongoose.model('UserSkillProfile', userSkillProfileSchema, 'user_skill_profiles');
+
+
+// ============================================================
 // 3c. ROADMAP SCHEMA & MODEL
 // ============================================================
 
@@ -226,7 +279,7 @@ const taskSchema = new mongoose.Schema({
     type: Array,
     default: []
   }
-}, { _id: false });
+}, { _id: false, strict: false });
 
 const daySchema = new mongoose.Schema({
   day_number: Number,
@@ -3653,6 +3706,19 @@ Return ONLY valid JSON matching this exact JSON schema:
 
       await evaluationDoc.save();
 
+      // Generate and save user skill profile in `user_skill_profiles` collection
+      const skillProfileData = buildUserSkillProfile({
+        userId: user_id,
+        domain: resolvedDomain,
+        quizEvaluation: evaluationDoc
+      });
+
+      await UserSkillProfile.findOneAndUpdate(
+        { user_id },
+        { ...skillProfileData },
+        { upsert: true, new: true }
+      );
+
       // Clear user active quiz from in-memory session store if present
       if (user_id && global.activeQuizStore) {
         global.activeQuizStore.delete(user_id);
@@ -3759,13 +3825,29 @@ Return ONLY valid JSON matching this exact JSON schema:
       console.log(`[ROADMAP DEBUG] knowledge_gaps: ${latestQuizEval && (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps) ? (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps).length : 0}`);
       console.log(`[ROADMAP DEBUG] mastered_topics: ${latestQuizEval && (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics) ? (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics).length : 0}`);
 
-      // Generate 3-level hierarchical personalized roadmap
-      const roadmapData = generatePersonalizedRoadmapEngine({
-        user_id: user.user_id,
+      // Fetch or build UserSkillProfile
+      let skillProfileDoc = await UserSkillProfile.findOne({ user_id: user.user_id });
+      if (!skillProfileDoc) {
+        const profileData = buildUserSkillProfile({
+          userId: user.user_id,
+          domain: user.chosen_domain,
+          quizEvaluation: latestQuizEval
+        });
+        skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
+          { user_id: user.user_id },
+          { ...profileData },
+          { upsert: true, new: true }
+        );
+      }
+
+      // Generate 3-level hierarchical personalized intelligent roadmap
+      const roadmapData = generateIntelligentRoadmap({
+        userId: user.user_id,
         domain: user.chosen_domain,
         timeline_months: user.timeline_months,
         daily_hours: user.daily_hours,
-        quizEvaluation: latestQuizEval
+        skillProfile: skillProfileDoc,
+        userLevel: user.current_skill_level || (latestQuizEval ? latestQuizEval.skill_level : 'BEGINNER')
       });
 
       // Save/Replace active roadmap in MongoDB Atlas `roadmaps` collection
@@ -3799,9 +3881,206 @@ Return ONLY valid JSON matching this exact JSON schema:
 
 
   // ==========================================================
+  // POST /api/skill-profile/generate
+  // ==========================================================
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/skill-profile/generate'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const { user_id, domain } = body;
+      if (!user_id) {
+        return sendJSON(res, 400, { error: 'Missing required parameter: user_id.' });
+      }
+
+      const latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+      const existingProfile = await UserSkillProfile.findOne({ user_id });
+
+      const profileData = buildUserSkillProfile({
+        userId: user_id,
+        domain: domain || (latestQuizEval ? latestQuizEval.domain : 'Full-Stack Web Development'),
+        quizEvaluation: latestQuizEval,
+        existingProfile
+      });
+
+      const savedProfile = await UserSkillProfile.findOneAndUpdate(
+        { user_id },
+        { ...profileData },
+        { upsert: true, new: true }
+      );
+
+      return sendJSON(res, 200, { success: true, skillProfile: savedProfile });
+    } catch (err) {
+      return sendJSON(res, 500, { error: 'Skill profile generation error: ' + err.message });
+    }
+  }
+
+  // ==========================================================
+  // GET /api/skill-profile/:userId
+  // ==========================================================
+  if (
+    req.method === 'GET' &&
+    parsedUrl.pathname.startsWith('/api/skill-profile/')
+  ) {
+    try {
+      const targetUserId = parsedUrl.pathname.replace('/api/skill-profile/', '').trim();
+      if (!targetUserId) {
+        return sendJSON(res, 400, { error: 'userId parameter is required.' });
+      }
+
+      let profileDoc = await UserSkillProfile.findOne({ user_id: targetUserId });
+      if (!profileDoc) {
+        const latestQuizEval = await QuizEvaluation.findOne({ user_id: targetUserId }).sort({ createdAt: -1 });
+        const userDoc = await User.findOne({ user_id: targetUserId });
+        const domain = (userDoc && userDoc.chosen_domain) || (latestQuizEval ? latestQuizEval.domain : 'fullstack');
+
+        const profileData = buildUserSkillProfile({
+          userId: targetUserId,
+          domain: domain,
+          quizEvaluation: latestQuizEval
+        });
+
+        profileDoc = await UserSkillProfile.findOneAndUpdate(
+          { user_id: targetUserId },
+          { ...profileData },
+          { upsert: true, new: true }
+        );
+      }
+
+      return sendJSON(res, 200, { success: true, skillProfile: profileDoc });
+    } catch (err) {
+      return sendJSON(res, 500, { error: 'Error fetching skill profile: ' + err.message });
+    }
+  }
+
+  // ==========================================================
+  // POST /api/roadmap/adapt
+  // ==========================================================
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/roadmap/adapt'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const { user_id, taskCompletion } = body;
+      if (!user_id) {
+        return sendJSON(res, 400, { error: 'Missing required parameter: user_id.' });
+      }
+
+      const user = await User.findOne({ user_id });
+      if (!user) {
+        return sendJSON(res, 404, { error: `User ${user_id} not found.` });
+      }
+
+      const currentRoadmap = await Roadmap.findOne({ user_id });
+      if (!currentRoadmap) {
+        return sendJSON(res, 404, { error: `No active roadmap for user ${user_id}.` });
+      }
+
+      let skillProfile = await UserSkillProfile.findOne({ user_id });
+      if (!skillProfile) {
+        const latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+        const profileData = buildUserSkillProfile({
+          userId: user_id,
+          domain: user.chosen_domain,
+          quizEvaluation: latestQuizEval
+        });
+        skillProfile = await UserSkillProfile.findOneAndUpdate(
+          { user_id },
+          { ...profileData },
+          { upsert: true, new: true }
+        );
+      }
+
+      const updatedRoadmap = await recalculateAdaptiveRoadmap({
+        user,
+        skillProfile,
+        currentRoadmap,
+        taskCompletionData: taskCompletion,
+        dbModels: { UserSkillProfile, Roadmap }
+      });
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: 'Adaptive roadmap successfully updated.',
+        roadmap: updatedRoadmap
+      });
+    } catch (err) {
+      return sendJSON(res, 500, { error: 'Adaptive replanning error: ' + err.message });
+    }
+  }
+
+  // ==========================================================
+  // POST /api/task/complete
+  // ==========================================================
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/task/complete'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const { user_id, taskId, skillId, isCorrect, scorePct } = body;
+      if (!user_id || !taskId) {
+        return sendJSON(res, 400, { error: 'Missing required parameters: user_id and taskId.' });
+      }
+
+      const user = await User.findOne({ user_id });
+      if (!user) {
+        return sendJSON(res, 404, { error: `User ${user_id} not found.` });
+      }
+
+      const currentRoadmap = await Roadmap.findOne({ user_id });
+      if (!currentRoadmap) {
+        return sendJSON(res, 404, { error: `No active roadmap for user ${user_id}.` });
+      }
+
+      let skillProfile = await UserSkillProfile.findOne({ user_id });
+      if (!skillProfile) {
+        const latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+        const profileData = buildUserSkillProfile({
+          userId: user_id,
+          domain: user.chosen_domain,
+          quizEvaluation: latestQuizEval
+        });
+        skillProfile = await UserSkillProfile.findOneAndUpdate(
+          { user_id },
+          { ...profileData },
+          { upsert: true, new: true }
+        );
+      }
+
+      const taskCompletion = {
+        taskId,
+        skillId,
+        isCorrect: !!isCorrect,
+        taskScorePct: scorePct !== undefined ? scorePct : (isCorrect ? 100 : 0)
+      };
+
+      const updatedRoadmap = await recalculateAdaptiveRoadmap({
+        user,
+        skillProfile,
+        currentRoadmap,
+        taskCompletionData: taskCompletion,
+        dbModels: { UserSkillProfile, Roadmap }
+      });
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: 'Task completion logged and adaptive roadmap updated.',
+        roadmap: updatedRoadmap
+      });
+    } catch (err) {
+      return sendJSON(res, 500, { error: 'Task completion error: ' + err.message });
+    }
+  }
+
+
+  // ==========================================================
   // 11d. START JOURNEY ENDPOINT
   // POST /api/roadmap/start
   // ==========================================================
+
 
   if (
     req.method === 'POST' &&
@@ -3988,18 +4267,33 @@ Return ONLY valid JSON matching this exact JSON schema:
         });
       }
 
-      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade
-      if (roadmapDoc.curriculum_version !== 'v2_placement') {
-        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v2_placement for user: ${targetUserId}`);
+      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade to v3
+      if (roadmapDoc.curriculum_version !== 'v3_intelligent_adaptive' && roadmapDoc.curriculum_version !== 'v3_adaptive_replanned') {
+        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v3_intelligent_adaptive for user: ${targetUserId}`);
         const userDoc = await User.findOne({ user_id: targetUserId });
         if (userDoc) {
           const latestQuizEval = await QuizEvaluation.findOne({ user_id: targetUserId }).sort({ createdAt: -1 });
-          const newRoadmapData = generatePersonalizedRoadmapEngine({
-            user_id: userDoc.user_id,
+          let skillProfileDoc = await UserSkillProfile.findOne({ user_id: targetUserId });
+          if (!skillProfileDoc) {
+            const profileData = buildUserSkillProfile({
+              userId: targetUserId,
+              domain: userDoc.chosen_domain,
+              quizEvaluation: latestQuizEval
+            });
+            skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
+              { user_id: targetUserId },
+              { ...profileData },
+              { upsert: true, new: true }
+            );
+          }
+
+          const newRoadmapData = generateIntelligentRoadmap({
+            userId: userDoc.user_id,
             domain: userDoc.chosen_domain,
             timeline_months: userDoc.timeline_months,
             daily_hours: userDoc.daily_hours,
-            quizEvaluation: latestQuizEval
+            skillProfile: skillProfileDoc,
+            userLevel: userDoc.current_skill_level || (latestQuizEval ? latestQuizEval.skill_level : 'BEGINNER')
           });
           roadmapDoc = await Roadmap.findOneAndUpdate(
             { user_id: targetUserId },

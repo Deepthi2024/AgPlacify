@@ -2867,6 +2867,20 @@ class PlacifySupervisorAgent {
       );
 
 
+    const activeSession = this.authAgent.getActiveSession();
+    if (activeSession && activeSession.user_id) {
+      fetch('http://localhost:5000/api/task/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: activeSession.user_id,
+          taskId: `task_day_${dayNumber}`,
+          isCorrect: grade.passed,
+          scorePct: grade.scorePct
+        })
+      }).catch(err => console.warn('[ADAPTIVE CALL NOTICE]', err.message));
+    }
+
     return {
 
       grade,

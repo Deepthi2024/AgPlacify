@@ -2122,6 +2122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (taskItem.type === 'PROBLEM_SOLVING' || taskItem.type === 'PROJECT') typeClass = 'SKIPPED';
 
         const taskTopic =
+          taskItem.subskillName ||
           taskItem.subtopic ||
           taskItem.topic ||
           taskItem.title ||
@@ -2138,10 +2139,16 @@ document.addEventListener('DOMContentLoaded', () => {
           topic: taskTopic,
 
           subtopic:
+            taskItem.subskillName ||
             taskItem.subtopic ||
             taskItem.topic ||
             taskItem.title ||
             dayTopic,
+
+          skillId: taskItem.skillId,
+          subskillId: taskItem.subskillId,
+          subskillName: taskItem.subskillName,
+          parentSkillId: taskItem.parentSkillId,
 
           dayTopic: dayTopic,
 
