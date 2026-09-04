@@ -1754,6 +1754,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
 
       ${daysList.map(d => {
+        const normDayMinutes = d.total_minutes || d.estimated_minutes || 120;
         const overallDayOffset = (weekObj.week_number - 1) * 7 + (d.day_number - 1);
         const dayDateObj = isStarted && startDate ? addDaysToDate(startDate, overallDayOffset) : null;
         const dayFormatted = dayDateObj ? formatDateLong(dayDateObj) : (d.day_name || 'Day ' + d.day_number);
@@ -1776,7 +1777,7 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <div style="display: flex; align-items: center; gap: 0.8rem;">
                 <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-cyan);">
-                  ⏱️ ${d.total_minutes} Mins Workload
+                  ⏱️ ${normDayMinutes} Mins Workload
                 </span>
                 <button class="btn btn-emerald launch-day-hub-btn" 
                   data-roadmap-id="${roadmap.roadmap_id || roadmap._id || roadmap.id || ''}" 
@@ -1791,25 +1792,34 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-              ${(d.tasks || []).map(t => {
+              ${(d.tasks || []).map((rawT, idx) => {
+                const normTask = window.normalizeDailyTask ? window.normalizeDailyTask(rawT, {
+                  domain: roadmap.domain || 'fullstack',
+                  monthNumber: monthObj.month_number,
+                  weekNumber: weekObj.week_number,
+                  dayNumber: d.day_number,
+                  topic: d.topic,
+                  taskSeq: idx + 1
+                }) : rawT;
+
                 let typeClass = 'STANDARD';
-                if (t.type === 'PRACTICE' || t.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
-                else if (t.type === 'PROBLEM_SOLVING' || t.type === 'PROJECT') typeClass = 'SKIPPED';
+                if (normTask.taskType === 'PRACTICE' || normTask.taskType === 'IMPLEMENT') typeClass = 'REMEDIAL';
+                else if (normTask.taskType === 'PROBLEM_SOLVING' || normTask.taskType === 'PROJECT') typeClass = 'SKIPPED';
 
                 return `
                   <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.7rem 0.9rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
                       <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.2rem;">
-                        <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${t.type}</span>
-                        <span class="tier-badge ${t.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${t.difficulty || 'INT'}</span>
-                        <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">${t.title}</span>
+                        <span class="node-tag ${typeClass}" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">${normTask.taskType}</span>
+                        <span class="tier-badge ${normTask.difficulty || 'INTERMEDIATE'}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">${normTask.difficulty || 'INT'}</span>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">${normTask.taskTitle}</span>
                       </div>
                       <div style="font-size: 0.75rem; color: var(--text-muted);">
-                        ${t.practice_details || t.revision_details || 'Core daily learning task.'}
+                        ${normTask.description || 'Core daily learning task.'}
                       </div>
                     </div>
                     <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-amber);">
-                      ⏱️ ${t.estimated_minutes} mins
+                      ⏱️ ${normTask.durationMinutes} mins
                     </div>
                   </div>
                 `;
@@ -2101,49 +2111,54 @@ document.addEventListener('DOMContentLoaded', () => {
       const userId = activeSession ? activeSession.user_id : (window.currentDraftProfile ? window.currentDraftProfile.user_id : null);
 
       if (dayTasksList.length === 0) {
-        dayTasksList = [
-          {
-            id: `task_day_${targetDayNum}_1`,
-            title: dailyData.task.conceptTitle || `Learn: ${dayTopic}`,
-            type: dailyData.task.type || 'LEARN',
-            difficulty: userLevel,
-            estimated_minutes: dailyData.task.estHours ? Math.round(dailyData.task.estHours * 60) : 45,
-            practice_details: dailyData.task.summary || 'Core daily learning task.'
-          }
-        ];
+        console.error('[ROADMAP TASK CONTRACT ERROR] Day has no tasks assigned:', { targetDayNum, dayTopic, domainKey });
+        resList.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-amber);"><i class="ph ph-warning-circle" style="font-size: 2rem;"></i><br/><br/>No tasks found for Day ${targetDayNum}. Please return to the roadmap and select a valid day.</div>`;
+        return;
       }
 
       let fullHTML = '';
 
       for (let tIdx = 0; tIdx < dayTasksList.length; tIdx++) {
-        const taskItem = dayTasksList[tIdx];
+        const rawTaskItem = dayTasksList[tIdx];
+        const taskItem = window.normalizeDailyTask ? window.normalizeDailyTask(rawTaskItem, {
+          domain: domainKey,
+          dayNumber: targetDayNum,
+          topic: dayTopic,
+          taskSeq: tIdx + 1
+        }) : rawTaskItem;
+
         let typeClass = 'STANDARD';
-        if (taskItem.type === 'PRACTICE' || taskItem.type === 'IMPLEMENT') typeClass = 'REMEDIAL';
-        else if (taskItem.type === 'PROBLEM_SOLVING' || taskItem.type === 'PROJECT') typeClass = 'SKIPPED';
+        if (taskItem.taskType === 'PRACTICE' || taskItem.taskType === 'IMPLEMENT') typeClass = 'REMEDIAL';
+        else if (taskItem.taskType === 'PROBLEM_SOLVING' || taskItem.taskType === 'PROJECT') typeClass = 'SKIPPED';
 
         const taskTopic =
-          taskItem.subskillName ||
-          taskItem.subtopic ||
+          taskItem.taskTopic ||
           taskItem.topic ||
-          taskItem.title ||
+          taskItem.taskSubtopic ||
+          taskItem.subtopic ||
           dayTopic;
 
         const taskContext = {
-          id: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
-          taskId: taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+          id: taskItem.taskId || taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
+          taskId: taskItem.taskId || taskItem.id || `task_day_${targetDayNum}_${tIdx + 1}`,
           dayNumber: targetDayNum,
 
-          title: taskItem.title,
-          taskTitle: taskItem.title,
+          title: taskItem.taskTitle || taskItem.title,
+          taskTitle: taskItem.taskTitle || taskItem.title,
 
           topic: taskTopic,
+          taskTopic: taskTopic,
 
           subtopic:
-            taskItem.subskillName ||
+            taskItem.taskSubtopic ||
             taskItem.subtopic ||
-            taskItem.topic ||
-            taskItem.title ||
-            dayTopic,
+            taskItem.subskillName ||
+            taskTopic,
+          taskSubtopic:
+            taskItem.taskSubtopic ||
+            taskItem.subtopic ||
+            taskItem.subskillName ||
+            taskTopic,
 
           skillId: taskItem.skillId,
           subskillId: taskItem.subskillId,
@@ -2151,31 +2166,24 @@ document.addEventListener('DOMContentLoaded', () => {
           parentSkillId: taskItem.parentSkillId,
 
           dayTopic: dayTopic,
-
           dailyTopic: taskTopic,
 
-          type: taskItem.type,
-          taskType: taskItem.type,
+          type: taskItem.taskType || taskItem.type || 'LEARN',
+          taskType: taskItem.taskType || taskItem.type || 'LEARN',
 
-          estimated_minutes: taskItem.estimated_minutes,
-          taskDuration: taskItem.estimated_minutes,
+          estimated_minutes: taskItem.durationMinutes || taskItem.estimated_minutes || 45,
+          taskDuration: taskItem.durationMinutes || taskItem.estimated_minutes || 45,
+          durationMinutes: taskItem.durationMinutes || taskItem.estimated_minutes || 45,
 
           domain: domainKey,
           chosen_domain: domainKey,
 
           user_id: userId,
 
-          userLevel:
-            taskItem.difficulty || userLevel,
+          userLevel: taskItem.difficulty || userLevel,
+          difficulty: taskItem.difficulty || userLevel,
 
-          difficulty:
-            taskItem.difficulty || userLevel,
-
-          description:
-            taskItem.practice_details ||
-            taskItem.revision_details ||
-            taskItem.summary ||
-            ''
+          description: taskItem.description || taskItem.practice_details || ''
         };
 
         console.log('[PHASE 1 RESOURCE CONTEXT]', {
@@ -2201,16 +2209,16 @@ document.addEventListener('DOMContentLoaded', () => {
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.6rem;">
               <div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap;">
-                  <span class="node-tag ${typeClass}" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">${taskItem.type || 'LEARN'}</span>
+                  <span class="node-tag ${typeClass}" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">${taskItem.taskType || 'LEARN'}</span>
                   <span class="tier-badge ${taskItem.difficulty || userLevel}" style="font-size: 0.7rem; padding: 0.15rem 0.5rem;">${taskItem.difficulty || userLevel}</span>
-                  <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff; margin: 0;">${taskItem.title}</h3>
+                  <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff; margin: 0;">${taskItem.taskTitle}</h3>
                 </div>
                 <div style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.4;">
-                  ${taskItem.practice_details || taskItem.revision_details || taskItem.summary || 'Read conceptual overview, study examples, and execute practice code drills.'}
+                  ${taskItem.description || 'Read conceptual overview, study examples, and execute practice code drills.'}
                 </div>
               </div>
               <div style="font-size: 0.88rem; font-weight: 700; color: var(--accent-amber); white-space: nowrap;">
-                ⏱️ ${taskItem.estimated_minutes || 30} mins
+                ⏱️ ${taskItem.durationMinutes || 30} mins
               </div>
             </div>
 

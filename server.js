@@ -14,13 +14,218 @@ const crypto = require('crypto');
 const url = require('url');
 const mongoose = require('mongoose');
 
-const { getKnowledgeGraph, getAllSkillsInGraph } = require('./engine/knowledgeGraph');
+const { getKnowledgeGraph, getAllSkillsInGraph, normalizeDomainKey, DOMAIN_CONFIG } = require('./engine/knowledgeGraph');
 const { buildUserSkillProfile, updateSkillMastery } = require('./engine/skillProfiler');
 const { generateIntelligentRoadmap, validateRoadmap } = require('./engine/roadmapPlanner');
 const { recalculateAdaptiveRoadmap } = require('./engine/adaptiveEngine');
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
+
+/**
+ * Canonical Daily Task Normalizer Adapter
+ * Guarantees every task object adheres to one canonical contract
+ */
+function normalizeDailyTask(rawTask, context = {}) {
+  if (!rawTask || typeof rawTask !== 'object') {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[ROADMAP TASK CONTRACT ERROR] Received non-object rawTask:', { rawTask, context });
+    }
+    return null;
+  }
+
+  const taskId = rawTask.taskId || rawTask.id || context.taskId || `task_${context.monthNumber || 1}_${context.weekNumber || 1}_${context.dayNumber || 1}_1`;
+  
+  const dayNumber = parseInt(rawTask.dayNumber !== undefined ? rawTask.dayNumber : (rawTask.day_number !== undefined ? rawTask.day_number : context.dayNumber), 10) || 1;
+  const monthNumber = parseInt(rawTask.monthNumber !== undefined ? rawTask.monthNumber : (rawTask.month_number !== undefined ? rawTask.month_number : context.monthNumber), 10) || 1;
+  const weekNumber = parseInt(rawTask.weekNumber !== undefined ? rawTask.weekNumber : (rawTask.week_number !== undefined ? rawTask.week_number : context.weekNumber), 10) || 1;
+  
+  const domain = normalizeDomainKey(rawTask.domain || rawTask.domainId || rawTask.chosen_domain || context.domain || 'fullstack');
+
+  const taskType = (rawTask.taskType || rawTask.type || rawTask.task_type || context.taskType || 'LEARN').toUpperCase();
+
+  let taskTitle = rawTask.taskTitle || rawTask.title || context.taskTitle || '';
+  let taskTopic = rawTask.taskTopic || rawTask.topic || rawTask.task_topic || context.taskTopic || context.topic || 'Core Learning';
+  let taskSubtopic = rawTask.taskSubtopic || rawTask.subtopic || rawTask.subskillName || rawTask.task_subtopic || context.taskSubtopic || context.subtopic || taskTopic;
+
+  // Clean up any stray "undefined" text if it slipped in
+  if (!taskTitle || taskTitle.includes('undefined')) {
+    if (taskTitle.includes('Learn: undefined')) {
+      taskTitle = `Learn: ${taskSubtopic}`;
+    } else if (taskTitle.includes('Guided Practice: undefined')) {
+      taskTitle = `Guided Practice: ${taskSubtopic} Drills`;
+    } else if (taskTitle.includes('Implement: undefined')) {
+      taskTitle = `Implement: ${taskSubtopic}`;
+    } else if (taskTitle.includes('Assessment: undefined')) {
+      taskTitle = `Assessment: ${taskSubtopic}`;
+    } else {
+      taskTitle = `${taskType === 'LEARN' ? 'Learn' : (taskType === 'PRACTICE' ? 'Practice' : 'Study')}: ${taskSubtopic}`;
+    }
+  }
+
+  const durationMinutes = parseInt(
+    rawTask.durationMinutes !== undefined ? rawTask.durationMinutes :
+    (rawTask.estimated_minutes !== undefined ? rawTask.estimated_minutes :
+    (rawTask.taskDuration !== undefined ? rawTask.taskDuration :
+    (rawTask.duration !== undefined ? rawTask.duration :
+    (rawTask.estHours !== undefined ? Math.round(rawTask.estHours * 60) : context.durationMinutes)))),
+    10
+  ) || 45;
+
+  const difficulty = (rawTask.difficulty || rawTask.taskDifficulty || rawTask.userLevel || context.difficulty || 'BEGINNER').toUpperCase();
+  const description = rawTask.description || rawTask.practice_details || rawTask.revision_details || rawTask.summary || context.description || `Core learning and practice module for ${taskSubtopic}.`;
+
+  const normalized = {
+    taskId,
+    id: taskId,
+
+    dayNumber,
+    day_number: dayNumber,
+
+    monthNumber,
+    month_number: monthNumber,
+
+    weekNumber,
+    week_number: weekNumber,
+
+    domain,
+    domainId: domain,
+
+    taskType,
+    type: taskType,
+
+    taskTitle,
+    title: taskTitle,
+
+    taskTopic,
+    topic: taskTopic,
+
+    taskSubtopic,
+    subtopic: taskSubtopic,
+    subskillName: taskSubtopic,
+
+    description,
+    practice_details: description,
+
+    difficulty,
+
+    durationMinutes,
+    estimated_minutes: durationMinutes
+  };
+
+  // Requirement 3: FAIL LOUDLY IN DEVELOPMENT
+  if (!normalized.taskTitle || !normalized.taskType || !normalized.durationMinutes || normalized.taskTitle.includes('undefined')) {
+    console.error('[ROADMAP TASK CONTRACT ERROR]', {
+      taskId,
+      domain,
+      monthNumber,
+      weekNumber,
+      dayNumber,
+      rawTask,
+      normalizedTask: normalized
+    });
+  }
+
+  return normalized;
+}
+
+/**
+ * Normalizes entire Roadmap structure cleanly
+ */
+function normalizeRoadmap(roadmap) {
+  if (!roadmap || typeof roadmap !== 'object') return roadmap;
+
+  const normDomain = normalizeDomainKey(roadmap.domain || roadmap.domainId || roadmap.chosen_domain);
+  roadmap.domain = normDomain;
+  roadmap.domainId = normDomain;
+  roadmap.domainName = DOMAIN_CONFIG[normDomain] ? DOMAIN_CONFIG[normDomain].displayName : (roadmap.domainName || normDomain);
+
+  if (Array.isArray(roadmap.monthly_roadmap)) {
+    roadmap.monthly_roadmap.forEach(m => {
+      if (Array.isArray(m.weeks)) {
+        m.weeks.forEach(w => {
+          if (Array.isArray(w.days)) {
+            w.days.forEach(d => {
+              const dayMins = d.total_minutes || d.estimated_minutes || 120;
+              d.total_minutes = dayMins;
+              d.estimated_minutes = dayMins;
+              d.id = d.id || d.dayId || d.day_id || `day_${d.day_number}`;
+              d.day_id = d.id;
+              d.dayId = d.id;
+
+              if (Array.isArray(d.tasks)) {
+                d.tasks = d.tasks.map((t, idx) => normalizeDailyTask(t, {
+                  domain: normDomain,
+                  monthNumber: m.month_number,
+                  weekNumber: w.week_number,
+                  dayNumber: d.day_number,
+                  topic: d.topic,
+                  taskSeq: idx + 1
+                })).filter(Boolean);
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+
+  return roadmap;
+}
+
+/**
+ * Data Integrity Validation Layer before saving to MongoDB Atlas
+ */
+function validateRoadmapDataIntegrity(roadmap) {
+  if (!roadmap || !Array.isArray(roadmap.monthly_roadmap)) {
+    throw new Error('[DATA INTEGRITY ERROR] Roadmap object missing monthly_roadmap array.');
+  }
+
+  const errors = [];
+  const normDomain = normalizeDomainKey(roadmap.domain || roadmap.domainId);
+
+  roadmap.monthly_roadmap.forEach((m, mIdx) => {
+    const monthNum = m.month_number || (mIdx + 1);
+    if (!Array.isArray(m.weeks)) {
+      errors.push(`Month ${monthNum} has no weeks array.`);
+      return;
+    }
+
+    m.weeks.forEach((w, wIdx) => {
+      const weekNum = w.week_number || (wIdx + 1);
+      if (!Array.isArray(w.days)) {
+        errors.push(`Week ${weekNum} has no days array.`);
+        return;
+      }
+
+      w.days.forEach((d, dIdx) => {
+        const dayNum = d.day_number || (dIdx + 1);
+        if (!Array.isArray(d.tasks) || d.tasks.length === 0) {
+          errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} has no tasks.`);
+          return;
+        }
+
+        d.tasks.forEach((t, tIdx) => {
+          if (!t.taskId && !t.id) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} missing taskId.`);
+          if (!t.taskTitle && !t.title) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} missing taskTitle.`);
+          if (t.taskTitle && t.taskTitle.includes('undefined')) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} title contains 'undefined': "${t.taskTitle}".`);
+          if (!t.taskType && !t.type) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} missing taskType.`);
+          if (!t.durationMinutes && !t.estimated_minutes) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} missing durationMinutes.`);
+          if (t.monthNumber !== monthNum && t.month_number !== monthNum) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} month mismatch.`);
+          if (t.weekNumber !== weekNum && t.week_number !== weekNum) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} week mismatch.`);
+          if (t.dayNumber !== dayNum && t.day_number !== dayNum) errors.push(`Month ${monthNum} Week ${weekNum} Day ${dayNum} Task ${tIdx + 1} day mismatch.`);
+        });
+      });
+    });
+  });
+
+  if (errors.length > 0) {
+    console.error('[ROADMAP DATA INTEGRITY VALIDATION FAILED]', errors);
+    throw new Error(`Roadmap Data Integrity Validation Failed: ${errors.join('; ')}`);
+  }
+
+  return true;
+}
 
 
 // ============================================================
@@ -3841,7 +4046,7 @@ Return ONLY valid JSON matching this exact JSON schema:
       }
 
       // Generate 3-level hierarchical personalized intelligent roadmap
-      const roadmapData = generateIntelligentRoadmap({
+      const rawRoadmapData = generateIntelligentRoadmap({
         userId: user.user_id,
         domain: user.chosen_domain,
         timeline_months: user.timeline_months,
@@ -3849,6 +4054,9 @@ Return ONLY valid JSON matching this exact JSON schema:
         skillProfile: skillProfileDoc,
         userLevel: user.current_skill_level || (latestQuizEval ? latestQuizEval.skill_level : 'BEGINNER')
       });
+
+      const roadmapData = normalizeRoadmap(rawRoadmapData);
+      validateRoadmapDataIntegrity(roadmapData);
 
       // Save/Replace active roadmap in MongoDB Atlas `roadmaps` collection
       const savedRoadmap = await Roadmap.findOneAndUpdate(
@@ -3863,12 +4071,12 @@ Return ONLY valid JSON matching this exact JSON schema:
       // Update user roadmap_status to READY
       await User.findOneAndUpdate({ user_id: user.user_id }, { roadmap_status: 'READY' });
 
-      console.log(`✅ Generated and saved Personalized Roadmap for user ${user_id} (${user.chosen_domain}, ${user.timeline_months} Months, ${user.daily_hours} Hrs/Day)`);
+      console.log(`✅ Generated, validated, and saved Personalized Roadmap for user ${user_id} (${user.chosen_domain}, ${user.timeline_months} Months, ${user.daily_hours} Hrs/Day)`);
 
       return sendJSON(res, 200, {
         success: true,
         message: 'Personalized Dynamic Roadmap generated and saved to MongoDB Atlas successfully.',
-        roadmap: savedRoadmap
+        roadmap: normalizeRoadmap(savedRoadmap)
       });
 
     } catch (err) {
@@ -4267,9 +4475,9 @@ Return ONLY valid JSON matching this exact JSON schema:
         });
       }
 
-      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade to v3
-      if (roadmapDoc.curriculum_version !== 'v3_intelligent_adaptive' && roadmapDoc.curriculum_version !== 'v3_adaptive_replanned') {
-        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v3_intelligent_adaptive for user: ${targetUserId}`);
+      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade to v3.3_unique_weekly_planner
+      if (roadmapDoc.curriculum_version !== 'v3.3_unique_weekly_planner') {
+        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v3.3_unique_weekly_planner for user: ${targetUserId}`);
         const userDoc = await User.findOne({ user_id: targetUserId });
         if (userDoc) {
           const latestQuizEval = await QuizEvaluation.findOne({ user_id: targetUserId }).sort({ createdAt: -1 });
@@ -4303,9 +4511,10 @@ Return ONLY valid JSON matching this exact JSON schema:
         }
       }
 
+      const normalizedRoadmapDoc = normalizeRoadmap(roadmapDoc.toObject ? roadmapDoc.toObject() : roadmapDoc);
       return sendJSON(res, 200, {
         success: true,
-        roadmap: roadmapDoc
+        roadmap: normalizedRoadmapDoc
       });
 
     } catch (err) {

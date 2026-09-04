@@ -2728,27 +2728,36 @@ class PlacifySupervisorAgent {
       foundTask = roadmap.dailyTasks.find(t => (reqDayId && (t.id === reqDayId || t.day_id === reqDayId)) || parseInt(t.dayNumber || t.day_number, 10) === targetDayNum) || roadmap.dailyTasks[0];
     }
 
-    const skillTier = roadmap.overall_level || roadmap.skillTier || 'BEGINNER';
-    const domain = roadmap.domain_id || 'fullstack';
-    const topic = (foundDay && foundDay.topic) || (foundTask && (foundTask.topic || foundTask.title)) || 'Core Learning';
+    const normTask = (foundTask && window.normalizeDailyTask) ? window.normalizeDailyTask(foundTask, { dayNumber: targetDayNum, topic: (foundDay && foundDay.topic) || 'Core Learning', domain: roadmap.domain || roadmap.domain_id || 'fullstack' }) : null;
+
+    const skillTier = (normTask && normTask.difficulty) || roadmap.overall_level || roadmap.skillTier || 'BEGINNER';
+    const domain = (normTask && normTask.domain) || roadmap.domain_id || roadmap.domain || 'fullstack';
+    const topic = (foundDay && foundDay.topic) || (normTask && (normTask.taskTopic || normTask.taskSubtopic || normTask.taskTitle)) || (foundTask && (foundTask.topic || foundTask.title)) || 'Core Learning';
 
     const task = {
       dayNumber: targetDayNum,
-      conceptTitle: (foundTask && foundTask.title) || `Day ${targetDayNum}: ${topic}`,
+      conceptTitle: (normTask && normTask.taskTitle) || (foundTask && foundTask.title) || `Day ${targetDayNum}: ${topic}`,
       topic: topic,
-      type: (foundTask && foundTask.type) || 'LEARN',
-      estHours: foundTask ? ((foundTask.estimated_minutes || 45) / 60) : 1,
-      tasks: (foundDay && Array.isArray(foundDay.tasks)) ? foundDay.tasks : (foundTask ? [foundTask] : [])
+      type: (normTask && normTask.taskType) || (foundTask && foundTask.type) || 'LEARN',
+      estHours: normTask ? (normTask.durationMinutes / 60) : (foundTask ? ((foundTask.estimated_minutes || 45) / 60) : 1),
+      tasks: (foundDay && Array.isArray(foundDay.tasks)) ? foundDay.tasks.map(t => window.normalizeDailyTask ? window.normalizeDailyTask(t, { dayNumber: targetDayNum, topic, domain }) : t) : (normTask ? [normTask] : (foundTask ? [foundTask] : []))
     };
 
     const taskContext = {
-      id: (foundTask && foundTask.id) || `task_day_${targetDayNum}`,
+      id: (normTask && normTask.taskId) || (foundTask && foundTask.id) || `task_day_${targetDayNum}`,
+      taskId: (normTask && normTask.taskId) || (foundTask && foundTask.id) || `task_day_${targetDayNum}`,
       title: task.conceptTitle,
+      taskTitle: task.conceptTitle,
       type: task.type,
+      taskType: task.type,
       estimated_minutes: Math.round(task.estHours * 60),
+      durationMinutes: Math.round(task.estHours * 60),
       domain: domain,
       user_id: roadmap.user_id,
       topic: topic,
+      taskTopic: topic,
+      subtopic: (normTask && normTask.taskSubtopic) || topic,
+      taskSubtopic: (normTask && normTask.taskSubtopic) || topic,
       difficulty: skillTier
     };
 

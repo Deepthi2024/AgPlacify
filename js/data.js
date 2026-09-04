@@ -618,3 +618,124 @@ window.PLACIFY_DATA = {
     return this.domains[0];
   }
 };
+
+window.normalizeDailyTask = function(rawTask, context = {}) {
+  if (!rawTask || typeof rawTask !== 'object') return null;
+
+  const taskId = rawTask.taskId || rawTask.id || context.taskId || `task_${context.monthNumber || 1}_${context.weekNumber || 1}_${context.dayNumber || 1}_1`;
+  
+  const dayNumber = parseInt(rawTask.dayNumber !== undefined ? rawTask.dayNumber : (rawTask.day_number !== undefined ? rawTask.day_number : context.dayNumber), 10) || 1;
+  const monthNumber = parseInt(rawTask.monthNumber !== undefined ? rawTask.monthNumber : (rawTask.month_number !== undefined ? rawTask.month_number : context.monthNumber), 10) || 1;
+  const weekNumber = parseInt(rawTask.weekNumber !== undefined ? rawTask.weekNumber : (rawTask.week_number !== undefined ? rawTask.week_number : context.weekNumber), 10) || 1;
+  
+  const domain = rawTask.domain || rawTask.domainId || rawTask.chosen_domain || context.domain || 'fullstack';
+
+  const taskType = (rawTask.taskType || rawTask.type || rawTask.task_type || context.taskType || 'LEARN').toUpperCase();
+
+  let taskTitle = rawTask.taskTitle || rawTask.title || context.taskTitle || '';
+  let taskTopic = rawTask.taskTopic || rawTask.topic || rawTask.task_topic || context.taskTopic || context.topic || 'Core Learning';
+  let taskSubtopic = rawTask.taskSubtopic || rawTask.subtopic || rawTask.subskillName || rawTask.task_subtopic || context.taskSubtopic || context.subtopic || taskTopic;
+
+  if (!taskTitle || taskTitle.includes('undefined')) {
+    if (taskTitle.includes('Learn: undefined')) {
+      taskTitle = `Learn: ${taskSubtopic}`;
+    } else if (taskTitle.includes('Guided Practice: undefined')) {
+      taskTitle = `Guided Practice: ${taskSubtopic} Drills`;
+    } else if (taskTitle.includes('Implement: undefined')) {
+      taskTitle = `Implement: ${taskSubtopic}`;
+    } else if (taskTitle.includes('Assessment: undefined')) {
+      taskTitle = `Assessment: ${taskSubtopic}`;
+    } else {
+      taskTitle = `${taskType === 'LEARN' ? 'Learn' : (taskType === 'PRACTICE' ? 'Practice' : 'Study')}: ${taskSubtopic}`;
+    }
+  }
+
+  const durationMinutes = parseInt(
+    rawTask.durationMinutes !== undefined ? rawTask.durationMinutes :
+    (rawTask.estimated_minutes !== undefined ? rawTask.estimated_minutes :
+    (rawTask.taskDuration !== undefined ? rawTask.taskDuration :
+    (rawTask.duration !== undefined ? rawTask.duration :
+    (rawTask.estHours !== undefined ? Math.round(rawTask.estHours * 60) : context.durationMinutes)))),
+    10
+  ) || 45;
+
+  const difficulty = (rawTask.difficulty || rawTask.taskDifficulty || rawTask.userLevel || context.difficulty || 'BEGINNER').toUpperCase();
+  const description = rawTask.description || rawTask.practice_details || rawTask.revision_details || rawTask.summary || context.description || `Core learning and practice module for ${taskSubtopic}.`;
+
+  const normalized = {
+    taskId,
+    id: taskId,
+    dayNumber,
+    day_number: dayNumber,
+    monthNumber,
+    month_number: monthNumber,
+    weekNumber,
+    week_number: weekNumber,
+    domain,
+    domainId: domain,
+    taskType,
+    type: taskType,
+    taskTitle,
+    title: taskTitle,
+    taskTopic,
+    topic: taskTopic,
+    taskSubtopic,
+    subtopic: taskSubtopic,
+    subskillName: taskSubtopic,
+    description,
+    practice_details: description,
+    difficulty,
+    durationMinutes,
+    estimated_minutes: durationMinutes
+  };
+
+  if (!normalized.taskTitle || !normalized.taskType || !normalized.durationMinutes || normalized.taskTitle.includes('undefined')) {
+    console.error('[ROADMAP TASK CONTRACT ERROR]', {
+      taskId,
+      domain,
+      monthNumber,
+      weekNumber,
+      dayNumber,
+      rawTask,
+      normalizedTask: normalized
+    });
+  }
+
+  return normalized;
+};
+
+window.normalizeRoadmap = function(roadmap) {
+  if (!roadmap || typeof roadmap !== 'object') return roadmap;
+
+  if (Array.isArray(roadmap.monthly_roadmap)) {
+    roadmap.monthly_roadmap.forEach(m => {
+      if (Array.isArray(m.weeks)) {
+        m.weeks.forEach(w => {
+          if (Array.isArray(w.days)) {
+            w.days.forEach(d => {
+              const dayMins = d.total_minutes || d.estimated_minutes || 120;
+              d.total_minutes = dayMins;
+              d.estimated_minutes = dayMins;
+              d.id = d.id || d.dayId || d.day_id || `day_${d.day_number}`;
+              d.day_id = d.id;
+              d.dayId = d.id;
+
+              if (Array.isArray(d.tasks)) {
+                d.tasks = d.tasks.map((t, idx) => window.normalizeDailyTask(t, {
+                  domain: roadmap.domain || 'fullstack',
+                  monthNumber: m.month_number,
+                  weekNumber: w.week_number,
+                  dayNumber: d.day_number,
+                  topic: d.topic,
+                  taskSeq: idx + 1
+                })).filter(Boolean);
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+
+  return roadmap;
+};
