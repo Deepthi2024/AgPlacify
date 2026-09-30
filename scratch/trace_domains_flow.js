@@ -1,6 +1,6 @@
-const { getKnowledgeGraph } = require('../engine/knowledgeGraph');
-const { buildUserSkillProfile } = require('../engine/skillProfiler');
-const { generateIntelligentRoadmap } = require('../engine/roadmapPlanner');
+const { getKnowledgeGraph } = require('../backend/engine/knowledgeGraph');
+const { buildUserSkillProfile } = require('../backend/engine/skillProfiler');
+const { generateIntelligentRoadmap } = require('../backend/engine/roadmapPlanner');
 
 const testDomains = [
   { key: 'fullstack', name: 'Full-Stack Web Development' },

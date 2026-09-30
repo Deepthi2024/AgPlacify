@@ -4,23 +4,29 @@
  * Collection: Registration
  */
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const Groq = require('groq-sdk');
 const http = require('http');
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const url = require('url');
 const mongoose = require('mongoose');
 
-const { getKnowledgeGraph, getAllSkillsInGraph, normalizeDomainKey, DOMAIN_CONFIG } = require('./engine/knowledgeGraph');
-const { buildUserSkillProfile, updateSkillMastery } = require('./engine/skillProfiler');
-const { generateIntelligentRoadmap, validateRoadmap } = require('./engine/roadmapPlanner');
-const { recalculateAdaptiveRoadmap } = require('./engine/adaptiveEngine');
+const { getKnowledgeGraph, getAllSkillsInGraph, normalizeDomainKey, DOMAIN_CONFIG, isDSADomain } = require('../engine/knowledgeGraph');
+const { filterAndSelectCandidateQuestions, getDomainTopics, getDifficultyDistribution, validateQuestionObject, shuffleOptionsAndRemapCorrect } = require('../engine/questionPool');
+const { buildUserSkillProfile, updateSkillMastery } = require('../engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap } = require('../engine/roadmapPlanner');
+const { recalculateAdaptiveRoadmap } = require('../engine/adaptiveEngine');
+const { fetchPersonalizedTechNews } = require('../services/techNewsService');
+const { fetchPersonalizedInternships } = require('../services/internshipService');
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
+
+// Global Active Quiz Store for Session Persistence
+global.activeQuizStore = global.activeQuizStore || new Map();
 
 /**
  * Canonical Daily Task Normalizer Adapter
@@ -130,6 +136,125 @@ function normalizeDailyTask(rawTask, context = {}) {
 }
 
 /**
+ * Local Calendar Date Helpers (Server-side)
+ */
+function parseLocalDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (dateStr instanceof Date) return dateStr;
+  const cleanStr = String(dateStr).split('T')[0];
+  const parts = cleanStr.split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m, d);
+    }
+  }
+  return new Date(dateStr);
+}
+
+function addDaysToLocalDate(dateInput, daysToAdd) {
+  const dt = parseLocalDate(dateInput);
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + daysToAdd);
+}
+
+function getCalendarDateDetails(startDateInput, dayOffset = 0) {
+  const dt = addDaysToLocalDate(startDateInput, dayOffset);
+  const year = dt.getFullYear();
+  const monthNum = dt.getMonth() + 1;
+  const monthName = dt.toLocaleString('en-US', { month: 'long' });
+  const shortMonth = dt.toLocaleString('en-US', { month: 'short' });
+  const dayOfMonth = dt.getDate();
+  const dayOfWeek = dt.toLocaleString('en-US', { weekday: 'long' });
+  const shortDayOfWeek = dt.toLocaleString('en-US', { weekday: 'short' });
+  const calendarDate = `${year}-${String(monthNum).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
+
+  return {
+    calendarDate,
+    year,
+    month: monthName,
+    shortMonth,
+    monthNum,
+    dayOfMonth,
+    dayOfWeek,
+    shortDayOfWeek,
+    formattedDateStr: `${dayOfWeek}, ${monthName} ${dayOfMonth}, ${year}`,
+    shortDateStr: `${shortMonth} ${dayOfMonth} — ${shortDayOfWeek}`,
+    dateObj: dt
+  };
+}
+
+function attachCalendarDatesToRoadmap(roadmap, startDateInput) {
+  if (!roadmap) return roadmap;
+  const monthlyList = roadmap.monthly_roadmap || (Array.isArray(roadmap) ? roadmap : null);
+  if (!Array.isArray(monthlyList)) return roadmap;
+
+  const baseStartDate = startDateInput || roadmap.journey_start_date || new Date().toISOString().slice(0, 10);
+  let overallDayIndex = 0;
+
+  monthlyList.forEach((m) => {
+    let monthStartDetails = null;
+    let monthEndDetails = null;
+
+    if (Array.isArray(m.weeks)) {
+      m.weeks.forEach((w) => {
+        let weekStartDetails = null;
+        let weekEndDetails = null;
+
+        if (Array.isArray(w.days)) {
+          w.days.forEach((d) => {
+            const dNum = parseInt(d.day_number, 10) || (overallDayIndex + 1);
+            const dateDetails = getCalendarDateDetails(baseStartDate, dNum - 1);
+
+            d.calendarDate = dateDetails.calendarDate;
+            d.year = dateDetails.year;
+            d.month = dateDetails.month;
+            d.dayOfMonth = dateDetails.dayOfMonth;
+            d.dayOfWeek = dateDetails.dayOfWeek;
+            d.shortDateStr = dateDetails.shortDateStr;
+            d.formattedDateStr = dateDetails.formattedDateStr;
+
+            if (dateDetails.dayOfWeek === 'Sunday') {
+              d.isSundayRevision = true;
+              if (!d.topic || !d.topic.toLowerCase().includes('sunday')) {
+                d.topic = `Sunday Weekly Revision (${d.topic || 'Weekly Review'})`;
+              }
+            } else {
+              d.isSundayRevision = false;
+              if (d.topic && d.topic.startsWith('Sunday Weekly Revision (')) {
+                d.topic = d.topic.replace(/^Sunday Weekly Revision \((.*)\)$/, '$1');
+              }
+            }
+
+            if (!weekStartDetails) weekStartDetails = dateDetails;
+            weekEndDetails = dateDetails;
+
+            if (!monthStartDetails) monthStartDetails = dateDetails;
+            monthEndDetails = dateDetails;
+
+            overallDayIndex++;
+          });
+        }
+
+        if (weekStartDetails && weekEndDetails) {
+          w.startDate = weekStartDetails.calendarDate;
+          w.endDate = weekEndDetails.calendarDate;
+          w.formattedRange = `${weekStartDetails.shortMonth} ${weekStartDetails.dayOfMonth} – ${weekEndDetails.shortMonth} ${weekEndDetails.dayOfMonth}, ${weekEndDetails.year}`;
+        }
+      });
+    }
+
+    if (monthStartDetails) {
+      m.calendarMonth = `${monthStartDetails.month} ${monthStartDetails.year}`;
+      m.formattedMonthTitle = `Month ${m.month_number} — ${monthStartDetails.month} ${monthStartDetails.year}`;
+    }
+  });
+
+  return roadmap;
+}
+
+/**
  * Normalizes entire Roadmap structure cleanly
  */
 function normalizeRoadmap(roadmap) {
@@ -139,6 +264,8 @@ function normalizeRoadmap(roadmap) {
   roadmap.domain = normDomain;
   roadmap.domainId = normDomain;
   roadmap.domainName = DOMAIN_CONFIG[normDomain] ? DOMAIN_CONFIG[normDomain].displayName : (roadmap.domainName || normDomain);
+
+  let nextIncompleteDayNum = null;
 
   if (Array.isArray(roadmap.monthly_roadmap)) {
     roadmap.monthly_roadmap.forEach(m => {
@@ -152,6 +279,24 @@ function normalizeRoadmap(roadmap) {
               d.id = d.id || d.dayId || d.day_id || `day_${d.day_number}`;
               d.day_id = d.id;
               d.dayId = d.id;
+
+              const isDone = d.completed || d.completedManually ||
+                (d.assessment && (
+                  d.assessment.completionStatus === 'completed' ||
+                  d.assessment.assessmentStatus === 'completed' ||
+                  d.assessment.status === 'completed' ||
+                  d.assessment.completedManually
+                ));
+
+              if (isDone) {
+                d.status = 'completed';
+                d.completed = true;
+              } else if (nextIncompleteDayNum === null) {
+                d.status = 'available';
+                nextIncompleteDayNum = parseInt(d.day_number, 10);
+              } else {
+                d.status = 'locked';
+              }
 
               if (Array.isArray(d.tasks)) {
                 d.tasks = d.tasks.map((t, idx) => normalizeDailyTask(t, {
@@ -169,6 +314,23 @@ function normalizeRoadmap(roadmap) {
       }
     });
   }
+
+  roadmap.next_incomplete_day = nextIncompleteDayNum || 1;
+  roadmap.current_active_day = nextIncompleteDayNum || 1;
+
+  const rawMode = roadmap.generation_mode || roadmap.generationMode;
+  if (rawMode === 'direct' || rawMode === 'quiz') {
+    roadmap.generation_mode = rawMode;
+  } else {
+    roadmap.generation_mode = (roadmap.quiz_score !== null && roadmap.quiz_score !== undefined) ? 'quiz' : 'direct';
+  }
+
+  if (roadmap.generation_mode === 'direct') {
+    roadmap.quiz_score = null;
+  }
+
+  // Attach real device calendar dates to all days
+  attachCalendarDatesToRoadmap(roadmap, roadmap.journey_start_date);
 
   return roadmap;
 }
@@ -279,6 +441,11 @@ const userSchema = new mongoose.Schema(
       default: null
     },
 
+    dsa_programming_language: {
+      type: String,
+      default: null
+    },
+
     timeline_months: {
       type: Number,
       default: 4
@@ -294,6 +461,11 @@ const userSchema = new mongoose.Schema(
       default: 'UNASSESSED'
     },
 
+    target_skill_level: {
+      type: String,
+      default: 'ADVANCED'
+    },
+
     quiz_completed: {
       type: Boolean,
       default: false
@@ -306,7 +478,7 @@ const userSchema = new mongoose.Schema(
 
     roadmap_status: {
       type: String,
-      enum: ['NOT_STARTED', 'GENERATING', 'READY', 'FAILED'],
+      enum: ['NOT_STARTED', 'GENERATING', 'READY', 'FAILED', 'ROADMAP_REQUIRED'],
       default: 'NOT_STARTED'
     },
 
@@ -355,20 +527,19 @@ const quizEvaluationSchema = new mongoose.Schema(
     },
     score_pct: {
       type: Number,
-      required: true
+      default: null
     },
     correct_count: {
       type: Number,
-      required: true
+      default: 0
     },
     total_questions: {
       type: Number,
-      required: true
+      default: 0
     },
     skill_level: {
       type: String,
-      enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'],
-      required: true
+      default: 'BEGINNER'
     },
     level_description: {
       type: String,
@@ -413,6 +584,57 @@ const quizEvaluationSchema = new mongoose.Schema(
 );
 
 const QuizEvaluation = mongoose.model('QuizEvaluation', quizEvaluationSchema, 'quiz_evaluations');
+
+// ============================================================
+// 3b3. QUIZ ATTEMPT SCHEMA & MODEL (CONTROLLED RANDOMIZATION)
+// ============================================================
+
+const quizAttemptSchema = new mongoose.Schema(
+  {
+    quizAttemptId: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true
+    },
+    user_id: {
+      type: String,
+      required: true,
+      index: true
+    },
+    domain: {
+      type: String,
+      required: true
+    },
+    level: {
+      type: String,
+      required: true
+    },
+    questionCount: {
+      type: Number,
+      default: 10
+    },
+    randomSeed: {
+      type: String,
+      required: true
+    },
+    questions: [mongoose.Schema.Types.Mixed],
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'COMPLETED'],
+      default: 'ACTIVE'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    collection: 'quiz_attempts'
+  }
+);
+
+const QuizAttempt = mongoose.model('QuizAttempt', quizAttemptSchema, 'quiz_attempts');
 
 
 // ============================================================
@@ -491,8 +713,16 @@ const daySchema = new mongoose.Schema({
   day_name: String,
   topic: String,
   tasks: [taskSchema],
-  total_minutes: Number
-}, { _id: false });
+  total_minutes: Number,
+  completed: {
+    type: Boolean,
+    default: false
+  },
+  assessment: {
+    type: Object,
+    default: null
+  }
+}, { _id: false, strict: false });
 
 const weekSchema = new mongoose.Schema({
   week_number: Number,
@@ -506,8 +736,12 @@ const weekSchema = new mongoose.Schema({
   revision: String,
   assessment: String,
   expected_outcomes: [String],
-  days: [daySchema]
-}, { _id: false });
+  days: [daySchema],
+  sunday_revision: {
+    type: Object,
+    default: null
+  }
+}, { _id: false, strict: false });
 
 const monthSchema = new mongoose.Schema({
   month_number: Number,
@@ -553,6 +787,11 @@ const roadmapSchema = new mongoose.Schema(
       type: Number,
       default: null
     },
+    generation_mode: {
+      type: String,
+      enum: ['quiz', 'direct'],
+      default: 'direct'
+    },
     journey_started: {
       type: Boolean,
       default: false
@@ -561,9 +800,38 @@ const roadmapSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    dsa_programming_language: {
+      type: String,
+      default: null
+    },
     overall_level: {
       type: String,
       default: null
+    },
+    current_skill_level: {
+      type: String,
+      default: 'BEGINNER'
+    },
+    target_skill_level: {
+      type: String,
+      default: 'ADVANCED'
+    },
+    assessment_status: {
+      type: String,
+      enum: ['completed', 'not_attempted'],
+      default: 'not_attempted'
+    },
+    topic_proficiencies: {
+      type: Array,
+      default: []
+    },
+    weak_topics: {
+      type: Array,
+      default: []
+    },
+    strong_topics: {
+      type: Array,
+      default: []
     },
     starting_point: {
       type: String,
@@ -2685,12 +2953,811 @@ Note: If you are asking a follow-up question or if confidence is low, set "recom
 
   // ==========================================================
   // 9c. DYNAMIC QUIZ GENERATION (GROQ AI MULTI-TYPE)
-  // POST /api/quiz/generate
-  // ==========================================================
+  // Helper: Sanitize questions before sending to frontend (strip correct answers & explanations)
+  function sanitizeQuestionsForClient(questions) {
+    return (questions || []).map(q => {
+      const clientQ = {
+        id: q.id,
+        type: q.type || 'single_select',
+        topic: q.topic,
+        subtopic: q.subtopic || 'Core Concept',
+        difficulty: q.difficulty || 'BEGINNER',
+        question: q.question,
+        codeSnippet: q.codeSnippet || null
+      };
+      if (Array.isArray(q.options)) {
+        clientQ.options = [...q.options];
+      }
+      return clientQ;
+    });
+  }
 
-  // In-memory active quiz store for session persistence
-  if (!global.activeQuizStore) {
-    global.activeQuizStore = new Map();
+  // Helper: Validation Layer for Groq Output
+  function validateGeneratedQuizQuestions(questions, requestedCount, requestedLevel, validTopics) {
+    const errors = [];
+    if (!Array.isArray(questions)) {
+      return { valid: false, errors: ['Generated questions payload is not an array.'] };
+    }
+
+    if (questions.length !== requestedCount) {
+      errors.push(`Expected exactly ${requestedCount} questions, but got ${questions.length}.`);
+    }
+
+    const validTypes = new Set([
+      'SINGLE_SELECT', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'NUMERICAL',
+      'SHORT_ANSWER', 'FILL_BLANK', 'CODE_OUTPUT', 'SCENARIO_BASED', 'MCQ', 'MSQ'
+    ]);
+
+    const seenIds = new Set();
+    const seenTexts = new Set();
+
+    questions.forEach((q, i) => {
+      const qLabel = `Question #${i + 1}`;
+      if (!q || typeof q !== 'object') {
+        errors.push(`${qLabel} is invalid or null.`);
+        return;
+      }
+
+      if (!q.id || typeof q.id !== 'string') {
+        errors.push(`${qLabel} missing valid unique string ID.`);
+      } else if (seenIds.has(q.id)) {
+        errors.push(`${qLabel} has duplicate ID "${q.id}".`);
+      } else {
+        seenIds.add(q.id);
+      }
+
+      const normText = (q.question || '').trim().toLowerCase();
+      if (!normText) {
+        errors.push(`${qLabel} has empty question text.`);
+      } else if (seenTexts.has(normText)) {
+        errors.push(`${qLabel} duplicate question content: "${q.question.substring(0, 40)}...".`);
+      } else {
+        seenTexts.add(normText);
+      }
+
+      const qType = (q.type || 'MCQ').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (!validTypes.has(qType)) {
+        errors.push(`${qLabel} has unknown question type "${q.type}".`);
+      }
+
+      if (!q.explanation || typeof q.explanation !== 'string' || !q.explanation.trim()) {
+        errors.push(`${qLabel} missing explanation.`);
+      }
+
+      const isOptionType = ['SINGLE_SELECT', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CODE_OUTPUT', 'SCENARIO_BASED', 'MCQ', 'MSQ'].includes(qType);
+      if (isOptionType) {
+        if (!Array.isArray(q.options) || q.options.length < 2) {
+          errors.push(`${qLabel} (${qType}) must have an options array with at least 2 choices.`);
+        } else {
+          const optionTexts = q.options.map(opt => String(opt).trim());
+          if (optionTexts.some(t => !t)) {
+            errors.push(`${qLabel} contains empty option choice.`);
+          }
+          const uniqueOpts = new Set(optionTexts.map(t => t.toLowerCase()));
+          if (uniqueOpts.size !== optionTexts.length) {
+            errors.push(`${qLabel} contains duplicate option choices.`);
+          }
+
+          if (['SINGLE_SELECT', 'CODE_OUTPUT', 'SCENARIO_BASED', 'MCQ'].includes(qType)) {
+            const hasIndex = typeof q.correct === 'number' && q.correct >= 0 && q.correct < q.options.length;
+            const hasStringMatch = typeof q.correct_answer === 'string' && optionTexts.some(opt => opt.toLowerCase() === q.correct_answer.trim().toLowerCase());
+            if (!hasIndex && !hasStringMatch) {
+              errors.push(`${qLabel} (${qType}) does not have a valid correct option index or matching option text.`);
+            }
+          } else if (qType === 'TRUE_FALSE') {
+            const hasBool = typeof q.correct === 'boolean' || typeof q.correct_answer === 'boolean';
+            const hasIndex = typeof q.correct === 'number' && q.correct >= 0 && q.correct < q.options.length;
+            const hasStr = typeof q.correct_answer === 'string' || typeof q.correct === 'string';
+            if (!hasBool && !hasIndex && !hasStr) {
+              errors.push(`${qLabel} (TRUE_FALSE) missing valid boolean or index answer.`);
+            }
+          } else if (['MULTIPLE_SELECT', 'MSQ'].includes(qType)) {
+            const corrArr = Array.isArray(q.correct) ? q.correct : (Array.isArray(q.correct_answers) ? q.correct_answers : null);
+            if (!corrArr || corrArr.length === 0) {
+              errors.push(`${qLabel} (MULTIPLE_SELECT) missing valid correct answers array.`);
+            }
+          }
+        }
+      } else if (qType === 'NUMERICAL') {
+        const numVal = parseFloat(q.correct_answer !== undefined ? q.correct_answer : q.correct);
+        if (isNaN(numVal)) {
+          errors.push(`${qLabel} (NUMERICAL) correct answer must be a valid number.`);
+        }
+      } else if (['SHORT_ANSWER', 'FILL_BLANK'].includes(qType)) {
+        const acc = q.accepted_answers || q.correct_answer || q.correct;
+        const validAcc = (Array.isArray(acc) && acc.length > 0) || (typeof acc === 'string' && acc.trim());
+        if (!validAcc) {
+          errors.push(`${qLabel} (${qType}) missing valid accepted answers.`);
+        }
+      }
+    });
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  // Configurable Revision Threshold (Default: 70%)
+  const DAILY_REVISION_THRESHOLD = parseInt(process.env.DAILY_REVISION_THRESHOLD, 10) || 70;
+
+  function getUpcomingSundayDate(dateInput) {
+    if (!dateInput) return null;
+    const dt = parseLocalDate(dateInput);
+    const dayOfWeek = dt.getDay(); // 0 = Sunday, 1 = Mon, ..., 6 = Sat
+    const daysUntilSunday = (dayOfWeek === 0) ? 0 : (7 - dayOfWeek);
+    const sundayDt = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + daysUntilSunday);
+    const y = sundayDt.getFullYear();
+    const m = String(sundayDt.getMonth() + 1).padStart(2, '0');
+    const d = String(sundayDt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function calculateSundayRevisionForWeek(weekObj, roadmapDoc) {
+    if (!weekObj || !Array.isArray(weekObj.days)) {
+      return {
+        day: "Sunday",
+        weekNumber: weekObj ? weekObj.week_number : 1,
+        topics: [],
+        hasQuizRevisions: false,
+        message: "No quiz-based revision items for this week."
+      };
+    }
+
+    const sundayDay = weekObj.days.find(d => d.dayOfWeek === 'Sunday' || (d.calendarDate && parseLocalDate(d.calendarDate).getDay() === 0));
+    const targetSundayDateStr = sundayDay ? sundayDay.calendarDate : (weekObj.days[0]?.calendarDate ? getUpcomingSundayDate(weekObj.days[0].calendarDate) : null);
+
+    const weakTopicMap = new Map();
+    let quizCountInWeek = 0;
+
+    const daysToScan = (roadmapDoc && Array.isArray(roadmapDoc.monthly_roadmap))
+      ? roadmapDoc.monthly_roadmap.flatMap(m => (m.weeks || []).flatMap(w => w.days || []))
+      : weekObj.days;
+
+    daysToScan.forEach(day => {
+      const dCalDate = day.calendarDate || (day.day_number ? getDayScheduledLocalDate(roadmapDoc ? roadmapDoc.journey_start_date : null, day.day_number) : null);
+      if (!dCalDate) return;
+
+      const upcomingSunday = getUpcomingSundayDate(dCalDate);
+      const isSundaySelf = (day.dayOfWeek === 'Sunday') || (dCalDate && parseLocalDate(dCalDate).getDay() === 0);
+
+      if (targetSundayDateStr) {
+        if (upcomingSunday !== targetSundayDateStr || isSundaySelf) return;
+      } else if (isSundaySelf) {
+        return;
+      }
+
+      const ass = day.assessment;
+      if (ass && ass.assessmentMode === 'quiz' && (ass.assessmentStatus === 'completed' || ass.status === 'completed')) {
+        quizCountInWeek++;
+
+        if (Array.isArray(ass.topicResults) && ass.topicResults.length > 0) {
+          ass.topicResults.forEach(tr => {
+            const tName = tr.topic || day.topic || 'Core Concept';
+            const tScore = tr.score !== undefined && tr.score !== null ? tr.score : (ass.score || 0);
+            if (tScore < DAILY_REVISION_THRESHOLD || tr.needsRevision) {
+              if (weakTopicMap.has(tName)) {
+                const existing = weakTopicMap.get(tName);
+                existing.count += 1;
+                existing.lowestScore = Math.min(existing.lowestScore, tScore);
+              } else {
+                weakTopicMap.set(tName, {
+                  topic: tName,
+                  score: tScore,
+                  lowestScore: tScore,
+                  reason: `Daily quiz score ${tScore}%`,
+                  source: 'quiz',
+                  count: 1
+                });
+              }
+            }
+          });
+        } else {
+          const score = ass.score !== undefined && ass.score !== null ? ass.score : 0;
+          if (score < DAILY_REVISION_THRESHOLD || ass.needsRevision) {
+            const topicsToAdd = (Array.isArray(ass.weakTopics) && ass.weakTopics.length > 0)
+              ? ass.weakTopics
+              : [day.topic || 'Core Concept'];
+
+            topicsToAdd.forEach(tName => {
+              if (weakTopicMap.has(tName)) {
+                const existing = weakTopicMap.get(tName);
+                existing.count += 1;
+                existing.lowestScore = Math.min(existing.lowestScore, score);
+              } else {
+                weakTopicMap.set(tName, {
+                  topic: tName,
+                  score: score,
+                  lowestScore: score,
+                  reason: `Daily quiz score ${score}%`,
+                  source: 'quiz',
+                  count: 1
+                });
+              }
+            });
+          }
+        }
+      }
+    });
+
+    const topics = [];
+    weakTopicMap.forEach((val) => {
+      let priority = 'LOWER';
+      if (val.lowestScore < 40 || val.count >= 2) {
+        priority = 'VERY HIGH';
+      } else if (val.lowestScore < 50) {
+        priority = 'HIGH';
+      } else if (val.lowestScore < 60) {
+        priority = 'MEDIUM';
+      } else {
+        priority = 'LOWER';
+      }
+
+      topics.push({
+        topic: val.topic,
+        reason: val.count > 1 ? `Repeated weak performance (${val.count}x, lowest ${val.lowestScore}%)` : val.reason,
+        source: 'quiz',
+        score: val.lowestScore,
+        priority,
+        occurrences: val.count
+      });
+    });
+
+    const priorityRank = { 'VERY HIGH': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOWER': 1 };
+    topics.sort((a, b) => {
+      if (priorityRank[b.priority] !== priorityRank[a.priority]) {
+        return priorityRank[b.priority] - priorityRank[a.priority];
+      }
+      return a.score - b.score;
+    });
+
+    let message = "No quiz-based revision items for this week.";
+    if (topics.length > 0) {
+      message = `Weekly Revision: ${topics.length} topic(s) need review based on quiz performance.`;
+    } else if (quizCountInWeek > 0) {
+      message = "Great work! No quiz-based revisions required this week.";
+    }
+
+    return {
+      day: "Sunday",
+      weekNumber: weekObj.week_number,
+      sundayDate: targetSundayDateStr,
+      topics,
+      hasQuizRevisions: topics.length > 0,
+      quizCountInWeek,
+      message
+    };
+  }
+
+  function calculateRoadmapProgress(roadmapDoc, userLocalDateInput, clientTimezoneInput) {
+    const userLocalDate = userLocalDateInput || new Date().toISOString().slice(0, 10);
+    const clientTimezone = clientTimezoneInput || 'Asia/Kolkata';
+
+    if (!roadmapDoc || !Array.isArray(roadmapDoc.monthly_roadmap)) {
+      return {
+        overall: { percent: 0, completedDays: 0, totalDays: 0, completedTasks: 0, totalTasks: 0 },
+        today: { calendarDate: userLocalDate, dayNumber: 1, status: 'LOCKED', completionMode: null, isCompleted: false, plannedMinutes: 120, completedMinutes: 0, tasksCompleted: 0, tasksTotal: 0 },
+        week: { weekNumber: 1, completedDays: 0, totalDays: 0, percent: 0 },
+        month: { monthName: 'Current Month', completedDays: 0, totalDays: 0, percent: 0 },
+        hours: { plannedHours: "0.0", completedHours: "0.0", plannedMinutes: 0, completedMinutes: 0 },
+        assessment: { quizzesTaken: 0, averageScore: 0, highestScore: 0, lowestScore: 0, weakTopicsCount: 0, topicProficiencies: [] },
+        revision: { requiredTopicsCount: 0, completedTopicsCount: 0, hasPendingRevision: false },
+        streak: { currentStreakDays: 0, lastCompletedDate: null },
+        skillProgression: { currentSkillLevel: 'BEGINNER', targetSkillLevel: 'ADVANCED', tierPercent: 0 }
+      };
+    }
+
+    let totalScheduledDays = 0;
+    let completedScheduledDays = 0;
+
+    let totalTasksCount = 0;
+    let completedTasksCount = 0;
+
+    let totalPlannedMinutes = 0;
+    let totalCompletedMinutes = 0;
+
+    let todayObj = null;
+    let todayPlannedMinutes = 120;
+    let todayCompletedMinutes = 0;
+    let todayTasksCompleted = 0;
+    let todayTasksTotal = 0;
+
+    let currentWeekNumber = 1;
+    let weekTotalDays = 0;
+    let weekCompletedDays = 0;
+
+    let currentMonthName = 'Current Month';
+    let monthTotalDays = 0;
+    let monthCompletedDays = 0;
+
+    let quizzesTaken = 0;
+    let totalQuizScoreSum = 0;
+    let highestScore = 0;
+    let lowestScore = 100;
+    const topicScoresMap = new Map();
+
+    let totalRevisionRequiredCount = 0;
+    let totalRevisionCompletedCount = 0;
+
+    const completedDatesSet = new Set();
+    const completedDayNumbers = new Set();
+    const startDate = roadmapDoc.journey_start_date || null;
+    let overallDayIndex = 0;
+
+    roadmapDoc.monthly_roadmap.forEach((month, mIdx) => {
+      const mNum = parseInt(month.month_number, 10) || (mIdx + 1);
+      (month.weeks || []).forEach((week, wIdx) => {
+        const wNum = parseInt(week.week_number, 10) || (wIdx + 1);
+        (week.days || []).forEach((day) => {
+          overallDayIndex++;
+          const dNum = parseInt(day.day_number, 10) || overallDayIndex;
+          const dCalDate = day.calendarDate || (startDate ? getDayScheduledLocalDate(startDate, dNum) : null);
+
+          const isCompleted = Boolean(
+            day.completed || day.completedManually ||
+            (day.assessment && (
+              day.assessment.completionStatus === 'completed' ||
+              day.assessment.assessmentStatus === 'completed' ||
+              day.assessment.status === 'completed' ||
+              day.assessment.completedManually
+            ))
+          );
+
+          const dayMinutes = day.total_minutes || day.estimated_minutes || 120;
+          const tasks = Array.isArray(day.daily_tasks || day.tasks) ? (day.daily_tasks || day.tasks) : [];
+          const tasksCount = tasks.length || 3;
+          let dayTasksCompletedCount = 0;
+
+          if (isCompleted) {
+            dayTasksCompletedCount = tasksCount;
+            completedScheduledDays++;
+            totalCompletedMinutes += dayMinutes;
+            if (dCalDate) completedDatesSet.add(dCalDate);
+            const actualDate = day.completedDateLocal || (day.assessment && day.assessment.completedDateLocal);
+            if (actualDate) completedDatesSet.add(String(actualDate).split('T')[0]);
+            completedDayNumbers.add(dNum);
+            completedDayNumbers.add(overallDayIndex);
+          }
+
+          totalScheduledDays++;
+          totalPlannedMinutes += dayMinutes;
+          totalTasksCount += tasksCount;
+          completedTasksCount += dayTasksCompletedCount;
+
+          const isTodayDate = (dCalDate && dCalDate === userLocalDate);
+
+          if (isTodayDate || (!todayObj && dNum === 1)) {
+            todayObj = day;
+            todayPlannedMinutes = dayMinutes;
+            todayCompletedMinutes = isCompleted ? dayMinutes : 0;
+            todayTasksCompleted = dayTasksCompletedCount;
+            todayTasksTotal = tasksCount;
+            currentWeekNumber = wNum;
+            if (dCalDate) {
+              const dt = parseLocalDate(dCalDate);
+              currentMonthName = dt.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            }
+          }
+
+          if (wNum === currentWeekNumber) {
+            weekTotalDays++;
+            if (isCompleted) weekCompletedDays++;
+          }
+
+          if (dCalDate) {
+            const dt = parseLocalDate(dCalDate);
+            const mName = dt.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            if (mName === currentMonthName || mNum === 1) {
+              monthTotalDays++;
+              if (isCompleted) monthCompletedDays++;
+            }
+          }
+
+          const ass = day.assessment;
+          if (ass && ass.assessmentMode === 'quiz' && (ass.assessmentStatus === 'completed' || ass.status === 'completed') && typeof ass.score === 'number') {
+            quizzesTaken++;
+            const score = ass.score;
+            totalQuizScoreSum += score;
+            highestScore = Math.max(highestScore, score);
+            lowestScore = Math.min(lowestScore, score);
+
+            const tName = day.topic || 'Core Concept';
+            if (!topicScoresMap.has(tName)) {
+              topicScoresMap.set(tName, { topic: tName, totalQuizzes: 0, scoreSum: 0, lowestScore: 100 });
+            }
+            const tData = topicScoresMap.get(tName);
+            tData.totalQuizzes += 1;
+            tData.scoreSum += score;
+            tData.lowestScore = Math.min(tData.lowestScore, score);
+          }
+        });
+
+        if (week.sunday_revision && Array.isArray(week.sunday_revision.topics)) {
+          const reqCount = week.sunday_revision.topics.length;
+          totalRevisionRequiredCount += reqCount;
+          if (week.sunday_revision.completed) {
+            totalRevisionCompletedCount += reqCount;
+          }
+        }
+      });
+    });
+
+    if (quizzesTaken === 0) lowestScore = 0;
+
+    let streakDays = 0;
+    if (completedScheduledDays > 0) {
+      let contiguousCount = 0;
+      let streakBreak = false;
+
+      roadmapDoc.monthly_roadmap.forEach((month) => {
+        (month.weeks || []).forEach((week) => {
+          (week.days || []).forEach((day) => {
+            const isCompleted = Boolean(
+              day.completed || day.completedManually ||
+              (day.assessment && (
+                day.assessment.completionStatus === 'completed' ||
+                day.assessment.assessmentStatus === 'completed' ||
+                day.assessment.status === 'completed' ||
+                day.assessment.completedManually
+              ))
+            );
+            if (streakBreak) return;
+            if (isCompleted) {
+              contiguousCount++;
+            } else {
+              streakBreak = true;
+            }
+          });
+        });
+      });
+
+      let calendarStreak = 0;
+      if (completedDatesSet.size > 0) {
+        let checkStr = userLocalDate;
+        if (!completedDatesSet.has(checkStr)) {
+          const cur = parseLocalDate(userLocalDate);
+          const prev = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() - 1);
+          const py = prev.getFullYear();
+          const pm = String(prev.getMonth() + 1).padStart(2, '0');
+          const pd = String(prev.getDate()).padStart(2, '0');
+          checkStr = `${py}-${pm}-${pd}`;
+        }
+
+        let count = 0;
+        while (completedDatesSet.has(checkStr)) {
+          count++;
+          const dt = parseLocalDate(checkStr);
+          const prev = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() - 1);
+          const py = prev.getFullYear();
+          const pm = String(prev.getMonth() + 1).padStart(2, '0');
+          const pd = String(prev.getDate()).padStart(2, '0');
+          checkStr = `${py}-${pm}-${pd}`;
+        }
+        calendarStreak = count;
+      }
+
+      streakDays = Math.max(contiguousCount, calendarStreak, 1);
+    }
+
+    const overallPercent = totalScheduledDays > 0 ? Math.round((completedScheduledDays / totalScheduledDays) * 100) : 0;
+    const weeklyPercent = weekTotalDays > 0 ? Math.round((weekCompletedDays / weekTotalDays) * 100) : 0;
+    const monthlyPercent = monthTotalDays > 0 ? Math.round((monthCompletedDays / monthTotalDays) * 100) : 0;
+    const avgQuizScore = quizzesTaken > 0 ? Math.round(totalQuizScoreSum / quizzesTaken) : 0;
+
+    const topicProficiencies = [];
+    topicScoresMap.forEach((v) => {
+      const avg = Math.round(v.scoreSum / v.totalQuizzes);
+      topicProficiencies.push({
+        topic: v.topic,
+        averageScore: avg,
+        totalQuizzes: v.totalQuizzes,
+        needsRevision: avg < 70
+      });
+    });
+
+    const weakTopicsCount = topicProficiencies.filter(t => t.needsRevision).length;
+    const isTodayCompleted = Boolean(
+      todayObj && (
+        todayObj.completed || todayObj.completedManually ||
+        (todayObj.assessment && (
+          todayObj.assessment.completionStatus === 'completed' ||
+          todayObj.assessment.assessmentStatus === 'completed' ||
+          todayObj.assessment.status === 'completed' ||
+          todayObj.assessment.completedManually
+        ))
+      )
+    );
+    const curStatus = isTodayCompleted ? 'TODAY_COMPLETED' : 'TODAY_ACTIVE';
+
+    return {
+      overall: {
+        percent: overallPercent,
+        completedDays: completedScheduledDays,
+        totalDays: totalScheduledDays,
+        completedTasks: completedTasksCount,
+        totalTasks: totalTasksCount
+      },
+      today: {
+        calendarDate: userLocalDate,
+        dayNumber: todayObj ? parseInt(todayObj.day_number, 10) : 1,
+        status: curStatus,
+        completionMode: todayObj && todayObj.assessment ? (todayObj.assessment.assessmentMode || (todayObj.completedManually ? 'manual' : 'quiz')) : null,
+        isCompleted: isTodayCompleted,
+        plannedMinutes: todayPlannedMinutes,
+        completedMinutes: todayCompletedMinutes,
+        tasksCompleted: todayTasksCompleted,
+        tasksTotal: todayTasksTotal
+      },
+      week: {
+        weekNumber: currentWeekNumber,
+        completedDays: weekCompletedDays,
+        totalDays: weekTotalDays,
+        percent: weeklyPercent
+      },
+      month: {
+        monthName: currentMonthName,
+        completedDays: monthCompletedDays,
+        totalDays: monthTotalDays,
+        percent: monthlyPercent
+      },
+      hours: {
+        plannedHours: (totalPlannedMinutes / 60).toFixed(1),
+        completedHours: (totalCompletedMinutes / 60).toFixed(1),
+        plannedMinutes: totalPlannedMinutes,
+        completedMinutes: totalCompletedMinutes
+      },
+      assessment: {
+        quizzesTaken,
+        averageScore: avgQuizScore,
+        highestScore,
+        lowestScore,
+        weakTopicsCount,
+        topicProficiencies
+      },
+      revision: {
+        requiredTopicsCount: totalRevisionRequiredCount,
+        completedTopicsCount: totalRevisionCompletedCount,
+        hasPendingRevision: (totalRevisionRequiredCount > totalRevisionCompletedCount)
+      },
+      streak: {
+        currentStreakDays: streakDays
+      },
+      skillProgression: {
+        currentSkillLevel: (roadmapDoc.overall_level || roadmapDoc.skillTier || 'BEGINNER').toUpperCase(),
+        targetSkillLevel: (roadmapDoc.targetSkillLevel || 'ADVANCED').toUpperCase(),
+        tierPercent: overallPercent
+      }
+    };
+  }
+
+  // Helper: Groq Dynamic Generator Engine
+  async function generateGroqQuestionsAsync({
+    domainName,
+    domainId,
+    level,
+    currentSkillLevel,
+    targetSkillLevel,
+    dayNumber,
+    topics,
+    learningObjectives,
+    dailyTasks = [],
+    questionCount,
+    quizAttemptId,
+    userHistoryTexts = [],
+    randomSeed
+  }) {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      throw new Error('GROQ_API_KEY environment variable is not configured.');
+    }
+
+    const groqClient = new Groq({ apiKey });
+
+    const difficultyDistros = {
+      BEGINNER: '40% conceptual understanding, 20% application, 20% code/output analysis, 10% multiple-select, 10% numerical/short-answer',
+      INTERMEDIATE: '25% conceptual, 25% practical application, 25% code/output prediction, 15% multiple-select, 10% numerical',
+      ADVANCED: '15% conceptual, 30% application, 30% code analysis/debugging, 15% scenario/architecture analysis, 10% numerical'
+    };
+    const distroText = difficultyDistros[level] || difficultyDistros.BEGINNER;
+
+    const GROQ_MODELS = [
+      'openai/gpt-oss-120b',
+      'qwen/qwen3.6-27b',
+      'openai/gpt-oss-20b',
+      'groq/compound-mini',
+      'groq/compound'
+    ];
+
+    const historyExcerpt = userHistoryTexts.length > 0 ? userHistoryTexts.slice(0, 10).join('; ') : '';
+    const taskSummary = Array.isArray(dailyTasks) ? dailyTasks.map(t => typeof t === 'object' ? (t.title || t.taskTitle) : String(t)).filter(Boolean).join('; ') : '';
+
+    const systemPrompt = `You are the Expert Technical Diagnostic Assessment Generator for AgPlacify.
+Your job is to generate ORIGINAL, NPTEL-style technical diagnostic assessment questions grounded SPECIFICALLY in today's curriculum tasks and learning objectives.
+
+AUTHORITATIVE PARAMETERS:
+- DOMAIN: "${domainName}" (${domainId})
+- CURRENT LEVEL: "${currentSkillLevel || level}" | TARGET LEVEL: "${targetSkillLevel || 'ADVANCED'}"
+- DAY NUMBER: Day ${dayNumber || 1}
+- TOPIC: "${topics[0] || 'Core Concept'}"
+- SUBTOPICS: ${topics.join(', ')}
+${learningObjectives ? `- LEARNING OBJECTIVES: "${learningObjectives}"` : ''}
+${taskSummary ? `- TODAY'S SPECIFIC TASKS: "${taskSummary}"` : ''}
+- QUESTION COUNT NEEDED: ${questionCount}
+- ATTEMPT ID: "${quizAttemptId}"
+- RANDOM SEED / NONCE: "${randomSeed}"
+- TARGET DIFFICULTY DISTRIBUTION: ${distroText}
+${historyExcerpt ? `- PREVIOUSLY USED QUESTIONS TO AVOID: ${historyExcerpt}` : ''}
+
+NPTEL QUESTION QUALITY STANDARDS:
+- Generate ORIGINAL questions inspired by NPTEL technical assessments specifically testing today's topic ("${topics[0] || 'Core Concept'}").
+- DO NOT generate questions on unrelated topics outside of today's learning content.
+- DO NOT generate trivial recall questions like "What is Python?".
+- Supported question types:
+  1. "single_select": 4 distinct choices in "options", "correct" (0-based integer index 0..3)
+  2. "multiple_select": 4 distinct choices in "options", "correct" (array of 0-based integer indices)
+  3. "true_false": choices ["True", "False"], "correct" 0 or 1
+  4. "numerical": numeric value in "correct_answer", tolerance float (e.g. 0.01)
+  5. "short_answer" or "fill_blank": array of accepted string answers in "accepted_answers"
+  6. "code_output": code snippet in "codeSnippet", 4 choices, 1 correct index
+  7. "scenario_based": scenario context, 4 choices, 1 correct index
+- EVERY question MUST have non-empty "id", "question", "topic", "subtopic", "difficulty", "type", "explanation".
+
+Return ONLY valid JSON matching this schema:
+{
+  "questions": [
+    {
+      "id": "q_1",
+      "type": "single_select",
+      "topic": "${topics[0] || 'Core Concept'}",
+      "subtopic": "Core Concept",
+      "difficulty": "${level}",
+      "question": "Scenario / question text...",
+      "codeSnippet": null,
+      "options": ["Choice A", "Choice B", "Choice C", "Choice D"],
+      "correct": 0,
+      "explanation": "Detailed step-by-step reasoning..."
+    }
+  ]
+}`;
+
+    let rawContent = null;
+    let lastErr = null;
+
+    for (const model of GROQ_MODELS) {
+      try {
+        console.log(`[Groq Gen] Attempting model ${model} for attempt ${quizAttemptId}...`);
+        const completion = await groqClient.chat.completions.create({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Generate EXACTLY ${questionCount} fresh NPTEL-style questions for ${domainName} at ${level} level. Nonce: ${quizAttemptId}_${randomSeed}` }
+          ],
+          model: model,
+          response_format: { type: 'json_object' },
+          temperature: 0.75,
+          max_tokens: 4000
+        });
+        rawContent = completion.choices[0]?.message?.content || null;
+        if (rawContent) break;
+      } catch (err) {
+        console.warn(`[Groq Gen] Model ${model} notice:`, err.message);
+        lastErr = err;
+      }
+    }
+
+    if (!rawContent) {
+      throw new Error(`All Groq models failed. Last error: ${lastErr ? lastErr.message : 'Unknown'}`);
+    }
+
+    let parsed = null;
+    try {
+      let cleanStr = rawContent.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      const firstBrace = cleanStr.indexOf('{');
+      const lastBrace = cleanStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanStr = cleanStr.substring(firstBrace, lastBrace + 1);
+      }
+      try {
+        parsed = JSON.parse(cleanStr);
+      } catch (e1) {
+        const sanitized = cleanStr
+          .replace(/[\r\n\t]/g, ' ')
+          .replace(/,\s*([\]}])/g, '$1');
+        parsed = JSON.parse(sanitized);
+      }
+    } catch (jsonErr) {
+      console.error('[Groq Parse Error] Raw content:', rawContent);
+      throw new Error(`Failed to parse Groq response JSON: ${jsonErr.message}`);
+    }
+
+    let questions = parsed ? (parsed.questions || parsed.data || []) : [];
+    if (!Array.isArray(questions) || questions.length === 0) {
+      throw new Error('Groq returned an empty questions array.');
+    }
+
+    let valResult = validateGeneratedQuizQuestions(questions, questionCount, level, topics);
+
+    if (!valResult.valid) {
+      console.warn(`[Groq Validation] Initial output validation failed with ${valResult.errors.length} errors. Triggering repair retry...`);
+      const repairPrompt = `The previous JSON response failed validation for the following reasons:\n${valResult.errors.map(e => '- ' + e).join('\n')}\n\nPlease repair the JSON response so that it passes ALL validation checks and contains EXACTLY ${questionCount} valid questions. Output ONLY valid JSON.`;
+
+      try {
+        const repairCompletion = await groqClient.chat.completions.create({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Generate EXACTLY ${questionCount} fresh NPTEL-style questions for ${domainName} at ${level} level. Nonce: ${quizAttemptId}_${randomSeed}` },
+            { role: 'assistant', content: rawContent },
+            { role: 'user', content: repairPrompt }
+          ],
+          model: 'openai/gpt-oss-120b',
+          response_format: { type: 'json_object' },
+          temperature: 0.5,
+          max_tokens: 4000
+        });
+
+        const repairRaw = repairCompletion.choices[0]?.message?.content || null;
+        if (repairRaw) {
+          let cleanRepair = repairRaw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          const fBrace = cleanRepair.indexOf('{');
+          const lBrace = cleanRepair.lastIndexOf('}');
+          if (fBrace !== -1 && lBrace !== -1 && lBrace > fBrace) {
+            cleanRepair = cleanRepair.substring(fBrace, lBrace + 1);
+          }
+          const repairedParsed = JSON.parse(cleanRepair);
+          const repairedQuestions = repairedParsed ? (repairedParsed.questions || repairedParsed.data || []) : [];
+          const repairValResult = validateGeneratedQuizQuestions(repairedQuestions, questionCount, level, topics);
+          if (repairValResult.valid) {
+            console.log(`✅ [Groq Validation] Repair retry succeeded!`);
+            questions = repairedQuestions;
+            valResult = repairValResult;
+          } else {
+            console.warn(`[Groq Validation] Repair retry failed validation. Errors:`, repairValResult.errors);
+          }
+        }
+      } catch (repairErr) {
+        console.warn(`[Groq Validation] Repair retry error:`, repairErr.message);
+      }
+    }
+
+    const finalQuestions = questions.slice(0, questionCount).map((q, idx) => {
+      let qType = String(q.type || 'single_select').toLowerCase();
+      let rawOpts = Array.isArray(q.options) ? q.options.map(opt => String(opt).trim()).filter(Boolean) : [];
+
+      if (qType.includes('short') || qType.includes('fill') || qType.includes('numerical')) {
+        qType = 'fill_blank';
+        rawOpts = [];
+      } else if (rawOpts.length === 0) {
+        if (qType.includes('true') || qType.includes('false')) {
+          rawOpts = ["True", "False"];
+          qType = 'true_false';
+        } else {
+          if (Array.isArray(q.accepted_answers) && q.accepted_answers.length > 0) {
+            const rightAns = String(q.accepted_answers[0]);
+            rawOpts = [rightAns, "Alternative Option A", "Alternative Option B", "None of the above"];
+          } else if (q.correct_answer && typeof q.correct_answer === 'string' && q.correct_answer.trim()) {
+            rawOpts = [q.correct_answer.trim(), "Alternative Option A", "Alternative Option B", "Alternative Option C"];
+          } else {
+            rawOpts = ["Option A", "Option B", "Option C", "Option D"];
+          }
+          qType = 'single_select';
+        }
+      }
+
+      return {
+        id: q.id || `q_${idx + 1}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        type: qType,
+        topic: q.topic || topics[idx % topics.length],
+        subtopic: q.subtopic || 'Applied Analysis',
+        difficulty: level,
+        question: String(q.question || '').trim(),
+        codeSnippet: q.codeSnippet || null,
+        options: rawOpts,
+        correct: typeof q.correct === 'number' ? q.correct : 0,
+        correct_answer: q.correct_answer !== undefined ? q.correct_answer : (rawOpts[0] || null),
+        correct_answers: Array.isArray(q.correct_answers) ? q.correct_answers : null,
+        accepted_answers: Array.isArray(q.accepted_answers) ? q.accepted_answers : (q.accepted_answers ? [String(q.accepted_answers)] : null),
+        explanation: String(q.explanation || 'Step-by-step technical explanation.').trim(),
+        hint: q.hint || null
+      };
+    });
+
+    return finalQuestions;
   }
 
   if (
@@ -2699,9 +3766,11 @@ Note: If you are asking a follow-up question or if confidence is low, set "recom
   ) {
     try {
       const body = await readRequestBody(req);
-      const { userId, questionCount: reqCount, domain: bodyDomain, level: bodyLevel, forceNew } = body;
+      const { userId, questionCount: reqCount, domain: bodyDomain, level: bodyLevel, forceNew, quizAttemptId: bodyAttemptId } = body;
 
-      // 1. Retrieve User from Database to get authoritative domain and level
+      const quizAttemptId = bodyAttemptId || `quiz_attempt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+      // Retrieve User from Database to get authoritative domain and level
       let userDoc = null;
       if (userId && mongoose.connection.readyState === 1) {
         try {
@@ -2713,8 +3782,8 @@ Note: If you are asking a follow-up question or if confidence is low, set "recom
       }
 
       // Canonical Domain & Level Resolution
-      const domainId = (userDoc && userDoc.chosen_domain) || bodyDomain || 'fullstack';
-      const initialLevel = bodyLevel || 'BEGINNER';
+      const domainId = canonicalizeDomainKey((userDoc && userDoc.chosen_domain) || bodyDomain || 'fullstack');
+      const initialLevel = (bodyLevel || 'BEGINNER').toUpperCase();
       const questionCount = Math.min(50, Math.max(5, parseInt(reqCount, 10) || 10));
 
       const domainNameMap = {
@@ -2728,198 +3797,113 @@ Note: If you are asking a follow-up question or if confidence is low, set "recom
         system_design: 'System Design & Distributed Architecture'
       };
       const canonicalDomainName = domainNameMap[domainId] || domainId;
+      if (!global.activeQuizStore) {
+        global.activeQuizStore = new Map();
+      }
 
-      // Check if user already has an active quiz and forceNew is false
-      if (userId && !forceNew && global.activeQuizStore.has(userId)) {
-        const existingQuiz = global.activeQuizStore.get(userId);
+      // Check if this specific attempt is already active and forceNew is false
+      if (!forceNew && global.activeQuizStore.has(quizAttemptId)) {
+        const existingQuiz = global.activeQuizStore.get(quizAttemptId);
         if (existingQuiz && existingQuiz.domainId === domainId && existingQuiz.questionCount === questionCount) {
-          console.log(`[QUIZ GENERATION] Returning existing active quiz for userId: ${userId} (${existingQuiz.quizId})`);
-          return sendJSON(res, 200, existingQuiz);
+          console.log(`[QUIZ GENERATION] Returning existing active quiz for quizAttemptId: ${quizAttemptId}`);
+          const clientCopy = Object.assign({}, existingQuiz, {
+            questions: sanitizeQuestionsForClient(existingQuiz.questions)
+          });
+          return sendJSON(res, 200, clientCopy);
         }
       }
 
       const randomSeed = crypto.randomBytes(8).toString('hex');
 
-      console.log(`[QUIZ GENERATION]`);
+      console.log(`[GROQ DYNAMIC QUIZ GENERATION]`);
       console.log(`userId: ${userId}`);
+      console.log(`quizAttemptId: ${quizAttemptId}`);
       console.log(`domain: ${canonicalDomainName} (${domainId})`);
       console.log(`level: ${initialLevel}`);
       console.log(`requestedQuestionCount: ${questionCount}`);
       console.log(`randomSeed: ${randomSeed}`);
 
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) {
-        return sendJSON(res, 500, { error: 'GROQ_API_KEY is not configured on server.' });
-      }
-
-      const groqClient = new Groq({ apiKey });
-      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-
-      const systemPrompt = `You are the Expert Technical Quiz Generator for AgPlacify.
-Your job is to generate a dynamic, diagnostic technical quiz for a learner.
-
-AUTHORITATIVE PARAMETERS:
-- DOMAIN: "${canonicalDomainName}" (${domainId})
-- DIFFICULTY LEVEL: "${initialLevel}"
-- EXACT QUESTION COUNT: ${questionCount}
-- RANDOM SEED: "${randomSeed}"
-
-CRITICAL MANDATORY RULES:
-1. You MUST generate EXACTLY ${questionCount} question items inside the "questions" array.
-2. EVERY question MUST include an "options" array containing EXACTLY 4 distinct choice options e.g. ["<p>", "<div>", "<span>", "<section>"] or ["Option A", "Option B", "Option C", "Option D"]. Do NOT leave "options" empty.
-3. The "correct" field MUST be the 0-based integer index of the correct option (0, 1, 2, or 3), or an array e.g. [0, 2] for MSQ questions.
-4. Difficulty of ALL questions must match "${initialLevel}".
-
-Return ONLY valid JSON matching this exact JSON schema:
-{
-  "questions": [
-    {
-      "id": "q_1",
-      "question": "Which HTML tag is used for a paragraph?",
-      "codeSnippet": null,
-      "type": "MCQ",
-      "topic": "HTML",
-      "subtopic": "Basic Tags",
-      "difficulty": "${initialLevel}",
-      "options": ["<p>", "<div>", "<span>", "<section>"],
-      "correct": 0,
-      "explanation": "The <p> tag defines a paragraph in HTML."
-    }
-  ]
-}`;
-
-      let generatedQuestions = [];
-      let attempts = 0;
-      const MAX_ATTEMPTS = 6;
-
-      while (generatedQuestions.length < questionCount && attempts < MAX_ATTEMPTS) {
-        const remainingNeeded = questionCount - generatedQuestions.length;
-        const fetchSize = Math.min(10, Math.max(5, remainingNeeded));
+      // Retrieve User Assessment History (recently answered question texts/IDs)
+      const userHistoryTexts = [];
+      if (userId && mongoose.connection.readyState === 1) {
         try {
-          console.log(`[Quiz Gen] Attempt ${attempts + 1}: Fetching batch of ${fetchSize} questions (Currently have ${generatedQuestions.length}/${questionCount})...`);
-
-          let completion;
-          try {
-            completion = await groqClient.chat.completions.create({
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate a JSON object with a "questions" array containing EXACTLY ${fetchSize} unique ${initialLevel} level questions for ${canonicalDomainName}. EVERY question MUST have an "options" array with 4 options. Seed: ${randomSeed}_att${attempts}` }
-              ],
-              model: model,
-              response_format: { type: 'json_object' },
-              temperature: 0.6,
-              max_tokens: 3500
-            });
-          } catch (apiErr) {
-            if (apiErr.status === 429 || (apiErr.message && apiErr.message.includes('429'))) {
-              console.warn('[Quiz Gen] 429 Rate Limit hit. Retrying in 3000ms...');
-              await new Promise(r => setTimeout(r, 3000));
-              completion = await groqClient.chat.completions.create({
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: `Generate a JSON object with a "questions" array containing EXACTLY ${fetchSize} unique ${initialLevel} level questions for ${canonicalDomainName}. EVERY question MUST have an "options" array with 4 options. Seed: ${randomSeed}_att${attempts}_retry` }
-                ],
-                model: model,
-                response_format: { type: 'json_object' },
-                temperature: 0.6,
-                max_tokens: 3500
-              });
-            } else {
-              throw apiErr;
+          const pastAttempts = await QuizAttempt.find({ user_id: userId }).select('questions.question').lean();
+          pastAttempts.forEach(att => {
+            if (Array.isArray(att.questions)) {
+              att.questions.forEach(q => { if (q && q.question) userHistoryTexts.push(q.question); });
             }
-          }
-
-          const rawContent = completion.choices[0]?.message?.content || '{}';
-          console.log('[Quiz Gen] RAW API RESPONSE:\n', rawContent);
-
-          let parsed = null;
-          try {
-            let cleanStr = rawContent.trim();
-            if (cleanStr.startsWith('```')) {
-              cleanStr = cleanStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-            }
-            const firstBrace = cleanStr.indexOf('{');
-            const lastBrace = cleanStr.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-              cleanStr = cleanStr.substring(firstBrace, lastBrace + 1);
-            }
-            parsed = JSON.parse(cleanStr);
-          } catch (jsonErr) {
-            console.warn('[Quiz Gen] Failed to parse JSON response:', jsonErr.message);
-          }
-
-          console.log(`Generated question count: ${parsed && Array.isArray(parsed.questions) ? parsed.questions.length : 0}`);
-          console.log(`Requested question count: ${questionCount}`);
-          console.log(`Domain: ${canonicalDomainName} (${domainId})`);
-          console.log(`Level: ${initialLevel}`);
-          console.log(`Questions:`, JSON.stringify(parsed && parsed.questions ? parsed.questions : [], null, 2));
-
-          if (parsed && Array.isArray(parsed.questions)) {
-            const validNew = parsed.questions.filter(q => {
-              if (!q || !q.question || typeof q.question !== 'string' || !q.question.trim()) return false;
-              return Array.isArray(q.options) && q.options.length >= 2;
-            });
-
-            for (const q of validNew) {
-              if (generatedQuestions.length >= questionCount) break;
-              // Prevent duplicates
-              const isDup = generatedQuestions.some(existing => existing.question.trim().toLowerCase() === q.question.trim().toLowerCase());
-              if (!isDup) {
-                generatedQuestions.push({
-                  id: q.id || `q_${generatedQuestions.length + 1}_${Date.now()}`,
-                  question: q.question.trim(),
-                  codeSnippet: q.codeSnippet || null,
-                  type: q.type || 'MCQ',
-                  topic: q.topic || 'Core Knowledge',
-                  subtopic: q.subtopic || 'Foundations',
-                  difficulty: initialLevel,
-                  options: Array.isArray(q.options) ? q.options : [],
-                  correct: q.correct !== undefined ? q.correct : (q.correct_answer !== undefined ? q.correct_answer : 0),
-                  explanation: q.explanation || ''
-                });
-              }
-            }
-          }
-        } catch (retryErr) {
-          console.warn(`[Quiz Gen] Attempt ${attempts + 1} error:`, retryErr.message);
-          await new Promise(r => setTimeout(r, 600));
+          });
+        } catch (histErr) {
+          console.warn('[Quiz Gen] History lookup notice:', histErr.message);
         }
-        attempts++;
       }
 
-      console.log(`[QUIZ GENERATION] generatedQuestionCount: ${generatedQuestions.length}`);
-      console.log(`[QUIZ GENERATION] validatedQuestionCount: ${generatedQuestions.length}`);
+      const topics = getDomainTopics(domainId);
 
-      if (generatedQuestions.length !== questionCount) {
-        return sendJSON(res, 500, {
-          error: `Failed to generate exactly ${questionCount} questions (generated ${generatedQuestions.length}). Please try again.`
-        });
-      }
+      // Generate dynamic questions using Groq API
+      const authoritativeQuestions = await generateGroqQuestionsAsync({
+        domainName: canonicalDomainName,
+        domainId,
+        level: initialLevel,
+        topics,
+        questionCount,
+        quizAttemptId,
+        userHistoryTexts,
+        randomSeed
+      });
 
-      const quizId = `quiz_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const quizPayload = {
-        quizId,
+        quizId: quizAttemptId,
+        quizAttemptId,
         userId: userId || 'guest',
         domain: canonicalDomainName,
         domainId,
         level: initialLevel,
-        questionCount,
+        questionCount: authoritativeQuestions.length,
         randomSeed,
-        questions: generatedQuestions,
+        questions: authoritativeQuestions,
         status: 'ACTIVE',
         createdAt: new Date().toISOString()
       };
 
+      // Store authoritative quiz payload in Memory & MongoDB Atlas
+      global.activeQuizStore.set(quizAttemptId, quizPayload);
       if (userId) {
-        global.activeQuizStore.set(userId, quizPayload);
+        global.activeQuizStore.set(`${userId}:${quizAttemptId}`, quizPayload);
       }
 
-      return sendJSON(res, 200, quizPayload);
+      if (mongoose.connection.readyState === 1) {
+        try {
+          await QuizAttempt.findOneAndUpdate(
+            { quizAttemptId },
+            {
+              quizAttemptId,
+              user_id: userId || 'guest',
+              domain: domainId,
+              level: initialLevel,
+              questionCount: authoritativeQuestions.length,
+              randomSeed,
+              questions: authoritativeQuestions,
+              status: 'ACTIVE'
+            },
+            { upsert: true, new: true }
+          );
+        } catch (dbSaveErr) {
+          console.warn('[Quiz Gen] QuizAttempt persistence notice:', dbSaveErr.message);
+        }
+      }
+
+      // Return client-sanitized payload (correct answers stripped)
+      const clientPayload = Object.assign({}, quizPayload, {
+        questions: sanitizeQuestionsForClient(authoritativeQuestions)
+      });
+
+      return sendJSON(res, 200, clientPayload);
 
     } catch (err) {
-      console.error('[Quiz Gen] Failed to generate quiz:', err.message);
-      return sendJSON(res, 500, {
-        error: 'Failed to generate quiz from AI backend.',
+      console.error('[Quiz Gen] Failed to generate dynamic quiz:', err.message);
+      return sendJSON(res, 502, {
+        error: 'Failed to generate dynamic assessment questions using Groq API.',
         message: err.message
       });
     }
@@ -2937,7 +3921,101 @@ Return ONLY valid JSON matching this exact JSON schema:
     if (uId && global.activeQuizStore && global.activeQuizStore.has(uId)) {
       return sendJSON(res, 200, global.activeQuizStore.get(uId));
     }
+    if (uId && mongoose.connection.readyState === 1) {
+      try {
+        const attempt = await QuizAttempt.findOne({ $or: [{ quizAttemptId: uId }, { user_id: uId }] }).sort({ createdAt: -1 }).lean();
+        if (attempt) {
+          return sendJSON(res, 200, attempt);
+        }
+      } catch (e) {}
+    }
     return sendJSON(res, 404, { error: 'No active quiz found' });
+  }
+
+  // ==========================================================
+  // 9e. LEARNING PLAN RECOMMENDATION ENGINE
+  // POST /api/learning-plan/recommend
+  // ==========================================================
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/learning-plan/recommend'
+  ) {
+    try {
+      const payload = await readRequestBody(req);
+      const { domain, targetLevel, quizEvaluation, is_self_assessed, isSelfAssessed } = payload;
+
+      const domainId = canonicalizeDomainKey(domain || 'fullstack');
+      const domainNameMap = {
+        fullstack: 'Full-Stack Web Development',
+        datascience: 'Data Science & Machine Learning',
+        dsa: 'Data Structures & Algorithms (Interview Prep)',
+        devops: 'Cloud Engineering & DevOps',
+        cybersecurity: 'Cybersecurity & Ethical Hacking',
+        mobile: 'Mobile App Development (React Native & Flutter)',
+        ai_llm: 'AI & LLM Systems Engineering',
+        system_design: 'System Design & Distributed Architecture'
+      };
+      const domainName = domainNameMap[domainId] || domain || 'Full-Stack Web Development';
+      const targetLvl = (targetLevel || (quizEvaluation && (quizEvaluation.skill_level || quizEvaluation.skillTier)) || 'BEGINNER').toUpperCase();
+
+      const selfAssessed = !!(is_self_assessed || isSelfAssessed || (quizEvaluation && (quizEvaluation.is_self_assessed || quizEvaluation.isSelfAssessed)));
+
+      let recommended_months = 4;
+      let recommended_daily_hours = 2.0;
+      let reason = '';
+
+      if (!selfAssessed && quizEvaluation && typeof quizEvaluation.score_pct === 'number') {
+        const score = quizEvaluation.score_pct;
+        const gaps = quizEvaluation.knowledge_gaps || quizEvaluation.weakTopics || [];
+        const mastered = quizEvaluation.mastered_topics || quizEvaluation.strongTopics || [];
+
+        if (score < 50) {
+          recommended_months = 5;
+          recommended_daily_hours = 2.5;
+          const gapNames = gaps.map(g => g.topic || g).filter(Boolean).slice(0, 3).join(', ');
+          reason = `Based on your diagnostic assessment (${score}% score) and ${gaps.length} identified knowledge gaps${gapNames ? ` (${gapNames})` : ''}, we recommend a 5-month preparation timeline at 2.5 hours/day to solidify fundamental topics before building advanced projects.`;
+        } else if (score >= 50 && score < 80) {
+          recommended_months = 4;
+          recommended_daily_hours = 2.0;
+          reason = `Based on your diagnostic assessment (${score}% score) demonstrating moderate applied proficiency, a standard 4-month timeline at 2.0 hours/day provides the optimal pace to reinforce gaps while progressing through core milestones.`;
+        } else {
+          recommended_months = 3;
+          recommended_daily_hours = 1.5;
+          reason = `Based on your strong diagnostic score (${score}%) and ${mastered.length} mastered prerequisite topics, we recommend an accelerated 3-month timeline at 1.5 hours/day focusing directly on advanced architectural patterns & portfolio projects.`;
+        }
+      } else {
+        // Direct Roadmap Flow Recommendation
+        if (targetLvl.includes('BEGINNER')) {
+          recommended_months = 4;
+          recommended_daily_hours = 2.0;
+          reason = `Based on the ${domainName} curriculum and your target Beginner level, we recommend a 4-month preparation plan at 2.0 hours/day to build complete foundational to core engineering mastery.`;
+        } else if (targetLvl.includes('INTERMEDIATE')) {
+          recommended_months = 5;
+          recommended_daily_hours = 2.0;
+          reason = `Based on the ${domainName} curriculum and your target Intermediate level, we recommend a 5-month plan at 2.0 hours/day to focus on applied architecture and real-world project execution.`;
+        } else {
+          recommended_months = 6;
+          recommended_daily_hours = 2.5;
+          reason = `Based on the ${domainName} curriculum and your target Advanced level, we recommend an intensive 6-month plan at 2.5 hours/day to master complex system design, optimization, and production deployment.`;
+        }
+      }
+
+      return sendJSON(res, 200, {
+        recommended_months,
+        recommended_daily_hours,
+        reason,
+        is_quiz_based: !selfAssessed
+      });
+
+    } catch (err) {
+      console.warn('[Learning Plan Recommend] Fallback trigger:', err.message);
+      return sendJSON(res, 200, {
+        recommended_months: 4,
+        recommended_daily_hours: 2.0,
+        reason: 'Recommended standard 4-month preparation plan at 2.0 hours/day.',
+        is_quiz_based: false
+      });
+    }
   }
 
 
@@ -3088,22 +4166,14 @@ Return ONLY valid JSON matching this exact JSON schema:
 
       const domain = chosen_domain || null;
 
-      const months =
-        parseInt(timeline_months, 10);
-
+      let months = parseInt(timeline_months, 10);
       if (isNaN(months) || months < 1) {
-        return sendJSON(res, 400, {
-          error: 'Preparation timeline must be a positive integer of months (minimum 1).'
-        });
+        months = 4;
       }
 
-      const hours =
-        parseFloat(daily_hours);
-
+      let hours = parseFloat(daily_hours);
       if (isNaN(hours) || hours <= 0) {
-        return sendJSON(res, 400, {
-          error: 'Daily commitment must be a positive number of hours.'
-        });
+        hours = 2.0;
       }
 
 
@@ -3460,15 +4530,27 @@ Return ONLY valid JSON matching this exact JSON schema:
     try {
       const userId = domainPatchMatch[1];
       const payload = await readRequestBody(req);
-      const { chosen_domain } = payload;
+      const { chosen_domain, dsa_programming_language, dsaProgrammingLanguage } = payload;
+      
+      const existingUser = await User.findOne({ user_id: userId });
+      const lang = dsa_programming_language || dsaProgrammingLanguage || (existingUser && existingUser.dsa_programming_language);
 
       if (!chosen_domain || !chosen_domain.trim()) {
         return sendJSON(res, 400, { error: 'chosen_domain is required.' });
       }
 
+      if (isDSADomain(chosen_domain) && (!lang || !lang.trim())) {
+        return sendJSON(res, 400, { error: 'Please select a programming language for your DSA roadmap.' });
+      }
+
+      const updateData = { chosen_domain: chosen_domain.trim() };
+      if (lang && lang.trim()) {
+        updateData.dsa_programming_language = lang.trim();
+      }
+
       const updatedUser = await User.findOneAndUpdate(
         { user_id: userId },
-        { chosen_domain: chosen_domain.trim() },
+        updateData,
         { new: true }
       );
 
@@ -3476,7 +4558,7 @@ Return ONLY valid JSON matching this exact JSON schema:
         return sendJSON(res, 404, { error: 'User not found.' });
       }
 
-      console.log(`✅ Domain updated for ${userId}: ${chosen_domain}`);
+      console.log(`✅ Domain updated for ${userId}: ${chosen_domain}${updatedUser.dsa_programming_language ? ` (Language: ${updatedUser.dsa_programming_language})` : ''}`);
 
       return sendJSON(res, 200, {
         success: true,
@@ -3486,6 +4568,7 @@ Return ONLY valid JSON matching this exact JSON schema:
           name: updatedUser.name,
           email: updatedUser.email,
           chosen_domain: updatedUser.chosen_domain,
+          dsa_programming_language: updatedUser.dsa_programming_language || null,
           timeline_months: updatedUser.timeline_months,
           daily_hours: updatedUser.daily_hours,
           current_skill_level: updatedUser.current_skill_level,
@@ -3565,6 +4648,14 @@ Return ONLY valid JSON matching this exact JSON schema:
         if (matchedIdx !== -1) {
           return { index: matchedIdx, text: String(options[matchedIdx]), raw: strVal };
         }
+        const cleanStrVal = strVal.replace(/^[A-Da-d][\.\)\:\-]\s*/, '').trim().toLowerCase();
+        const matchedIdxClean = options.findIndex(opt => {
+          const cleanOpt = String(opt).replace(/^[A-Da-d][\.\)\:\-]\s*/, '').trim().toLowerCase();
+          return cleanOpt === cleanStrVal;
+        });
+        if (matchedIdxClean !== -1) {
+          return { index: matchedIdxClean, text: String(options[matchedIdxClean]), raw: strVal };
+        }
       }
 
       return { index: -1, text: strVal, raw: strVal };
@@ -3611,12 +4702,17 @@ Return ONLY valid JSON matching this exact JSON schema:
         if (val === true) return 'true';
         if (val === false) return 'false';
         if (val === undefined || val === null || val === '' || val === 'Unanswered') return '';
-        const str = String(val).trim().toLowerCase();
-        if (str === 'true' || str === 't' || str === '1' || str === 'yes') return 'true';
-        if (str === 'false' || str === 'f' || str === '0' || str === 'no') return 'false';
+
         const info = getOptionInfo(val);
-        if (info.text.toLowerCase().includes('true')) return 'true';
-        if (info.text.toLowerCase().includes('false')) return 'false';
+        if (info.text) {
+          const t = info.text.trim().toLowerCase();
+          if (t === 'true' || t === 't' || t === 'yes' || t.startsWith('true')) return 'true';
+          if (t === 'false' || t === 'f' || t === 'no' || t.startsWith('false')) return 'false';
+        }
+
+        const str = String(val).trim().toLowerCase();
+        if (str === 'true' || str === 't' || str === 'yes') return 'true';
+        if (str === 'false' || str === 'f' || str === 'no') return 'false';
         return str;
       };
 
@@ -3626,8 +4722,14 @@ Return ONLY valid JSON matching this exact JSON schema:
     }
     // 3. NUMERICAL
     else if (qType === 'NUMERICAL') {
-      const corrNum = parseFloat(rawCorrect);
-      const userNum = parseFloat(userSelection);
+      const cleanNumStr = (v) => {
+        if (typeof v === 'number') return v;
+        if (!v) return NaN;
+        const str = String(v).replace(/[^0-9\.-]/g, '');
+        return parseFloat(str);
+      };
+      const corrNum = cleanNumStr(rawCorrect);
+      const userNum = cleanNumStr(userSelection);
 
       if (!isNaN(corrNum) && !isNaN(userNum)) {
         normalizedCorrect = String(corrNum);
@@ -3639,7 +4741,32 @@ Return ONLY valid JSON matching this exact JSON schema:
         isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
       }
     }
-    // 4. MCQ / CODE_OUTPUT / SCENARIO / CONCEPTUAL / FILL_BLANK / SHORT_ANSWER
+    // 4. SHORT_ANSWER / FILL_BLANK
+    else if (qType === 'SHORT_ANSWER' || qType === 'FILL_BLANK' || qType === 'FILL_IN_THE_BLANK') {
+      const cleanText = (txt) => {
+        if (!txt) return '';
+        let s = String(txt).trim().toLowerCase();
+        s = s.replace(/^[a-z]\)\s*/, '');
+        s = s.replace(/^(a|an|the)\s+/, '');
+        s = s.replace(/[\.\,\;\!\?\`\'\"]+$/, '');
+        return s.trim();
+      };
+
+      const userClean = cleanText(userSelection);
+      let acceptable = [];
+      if (Array.isArray(rawCorrect)) {
+        acceptable = rawCorrect.map(cleanText);
+      } else if (typeof rawCorrect === 'string') {
+        acceptable = rawCorrect.split(/;|\||\//).map(cleanText).filter(Boolean);
+      } else {
+        acceptable = [cleanText(rawCorrect)];
+      }
+
+      normalizedCorrect = acceptable.join(' / ');
+      normalizedUser = userClean || 'Unanswered';
+      isCorrect = (userClean !== '' && userClean !== 'unanswered' && acceptable.some(acc => acc === userClean || (acc.includes(userClean) && userClean.length >= 3)));
+    }
+    // 5. MCQ / CODE_OUTPUT / SCENARIO / CONCEPTUAL / SINGLE_SELECT / DEFAULT
     else {
       if (options.length > 0) {
         const corrOpt = getOptionInfo(rawCorrect);
@@ -3656,7 +4783,7 @@ Return ONLY valid JSON matching this exact JSON schema:
         } else {
           normalizedCorrect = corrOpt.text.trim().toLowerCase();
           normalizedUser = userOpt.text.trim().toLowerCase();
-          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedCorrect !== '' && normalizedUser === normalizedCorrect);
         }
       } else {
         if (userSelection === undefined || userSelection === null || userSelection === '' || userSelection === 'Unanswered') {
@@ -3666,7 +4793,7 @@ Return ONLY valid JSON matching this exact JSON schema:
         } else {
           normalizedCorrect = String(rawCorrect || '').trim().toLowerCase();
           normalizedUser = String(userSelection || '').trim().toLowerCase();
-          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedUser === normalizedCorrect);
+          isCorrect = (normalizedUser !== '' && normalizedUser !== 'unanswered' && normalizedCorrect !== '' && normalizedUser === normalizedCorrect);
         }
       }
     }
@@ -3705,8 +4832,10 @@ Return ONLY valid JSON matching this exact JSON schema:
       }
 
       const payload = await readRequestBody(req);
-      let { user_id, domain, answers, is_self_assessed, isSelfAssessed, skill_level, skillLevel } = payload;
+      let { user_id: rawUserId, userId: altUserId, domain, answers: rawAnswers, is_self_assessed, isSelfAssessed, skill_level, skillLevel, quizAttemptId: rawAttemptId, attemptId } = payload;
+      const user_id = rawUserId || altUserId;
       const selfAssessed = !!(is_self_assessed || isSelfAssessed);
+      const quizAttemptId = rawAttemptId || attemptId;
 
       if (!user_id) {
         return sendJSON(res, 400, {
@@ -3714,9 +4843,9 @@ Return ONLY valid JSON matching this exact JSON schema:
         });
       }
 
-      if (!selfAssessed && (!answers || !Array.isArray(answers) || answers.length === 0)) {
+      if (!selfAssessed && (!rawAnswers || (Array.isArray(rawAnswers) && rawAnswers.length === 0) || (typeof rawAnswers === 'object' && Object.keys(rawAnswers).length === 0))) {
         return sendJSON(res, 400, {
-          error: 'Missing required parameters: user_id, domain, and a non-empty answers array.'
+          error: 'Missing required parameters: user_id, domain, and non-empty answers.'
         });
       }
 
@@ -3760,6 +4889,60 @@ Return ONLY valid JSON matching this exact JSON schema:
         resolvedDomain = normalizeDomainName(dbUser.chosen_domain);
       }
 
+      // Look up authoritative stored quiz attempt for correct answers
+      let targetAttempt = null;
+      if (quizAttemptId) {
+        if (global.activeQuizStore && global.activeQuizStore.has(quizAttemptId)) {
+          targetAttempt = global.activeQuizStore.get(quizAttemptId);
+        } else {
+          targetAttempt = await QuizAttempt.findOne({ quizAttemptId }).lean();
+        }
+      }
+      if (!targetAttempt && user_id) {
+        targetAttempt = await QuizAttempt.findOne({ user_id, status: 'ACTIVE' }).sort({ createdAt: -1 }).lean();
+        if (!targetAttempt) {
+          targetAttempt = await QuizAttempt.findOne({ user_id }).sort({ createdAt: -1 }).lean();
+        }
+      }
+
+      const storedQMap = new Map();
+      if (targetAttempt && Array.isArray(targetAttempt.questions)) {
+        targetAttempt.questions.forEach((sq, idx) => {
+          if (sq.id) storedQMap.set(String(sq.id), sq);
+          if (sq._id) storedQMap.set(String(sq._id), sq);
+          storedQMap.set(`q_${idx + 1}`, sq);
+          storedQMap.set(String(idx), sq);
+        });
+      }
+
+      console.log(`[Quiz Eval Debug] quizAttemptId=${quizAttemptId}, foundTargetAttempt=${!!targetAttempt}, storedQMapSize=${storedQMap.size}`);
+      if (targetAttempt) {
+        console.log(`[Quiz Eval Debug] targetAttempt.questions[0]=`, JSON.stringify(targetAttempt.questions[0]));
+      }
+
+      let answersList = [];
+      if (Array.isArray(rawAnswers)) {
+        answersList = rawAnswers;
+      } else if (typeof rawAnswers === 'object' && rawAnswers !== null) {
+        if (targetAttempt && Array.isArray(targetAttempt.questions)) {
+          answersList = targetAttempt.questions.map((sq, idx) => {
+            let userSel = rawAnswers[sq.id];
+            if (userSel === undefined && sq._id) userSel = rawAnswers[sq._id];
+            if (userSel === undefined) userSel = rawAnswers[`q_${idx + 1}`];
+            if (userSel === undefined) userSel = rawAnswers[idx];
+            return {
+              ...sq,
+              user_answer: userSel
+            };
+          });
+        } else {
+          answersList = Object.keys(rawAnswers).map(key => ({
+            id: key,
+            user_answer: rawAnswers[key]
+          }));
+        }
+      }
+
       let correctCount = 0;
       let totalQuestions = 0;
       let scorePct = 0;
@@ -3770,58 +4953,60 @@ Return ONLY valid JSON matching this exact JSON schema:
 
       if (selfAssessed) {
         finalSkillLevel = (skill_level || skillLevel || 'BEGINNER').toUpperCase();
+        scorePct = null;
         if (finalSkillLevel === 'ADVANCED') {
-          scorePct = 85;
-          levelDescription = 'High technical proficiency. User manually self-assessed as Advanced.';
+          levelDescription = 'User self-assessed proficiency as Advanced.';
         } else if (finalSkillLevel === 'INTERMEDIATE') {
-          scorePct = 65;
-          levelDescription = 'Practical understanding solid. User manually self-assessed as Intermediate.';
+          levelDescription = 'User self-assessed proficiency as Intermediate.';
+        } else if (finalSkillLevel === 'EXPERT') {
+          levelDescription = 'User self-assessed proficiency as Expert.';
         } else {
           finalSkillLevel = 'BEGINNER';
-          scorePct = 40;
-          levelDescription = 'Foundational gaps identified. User manually self-assessed as Beginner.';
+          levelDescription = 'User self-assessed proficiency as Beginner.';
         }
         totalQuestions = 0;
         correctCount = 0;
       } else {
-        totalQuestions = answers.length;
-        answers.forEach(q => {
-          let isCorrect = false;
-          let debugLog = null;
-          let normCorr = '';
-          let normUser = '';
+        totalQuestions = answersList.length;
+        answersList.forEach((qItem, idx) => {
+          const qId = String(qItem.id || qItem._id || qItem.questionId || '');
+          const storedQ = storedQMap.get(qId) || storedQMap.get(String(idx));
 
-          if (q.is_correct !== undefined && typeof q.is_correct === 'boolean' && q.normalized_correct !== undefined) {
-            // Already pre-evaluated by frontend agent with full normalization metadata
-            isCorrect = q.is_correct;
-            normCorr = q.normalized_correct || String(q.correct_answer || '');
-            normUser = q.normalized_user || String(q.user_answer || '');
-            debugLog = {
-              questionId: q.id || 'unknown',
-              type: q.type || 'MCQ',
-              correctAnswer: q.correct_answer,
-              correctAnswerType: typeof q.correct_answer,
-              userAnswer: q.user_answer,
-              userAnswerType: typeof q.user_answer,
-              normalizedCorrect: normCorr,
-              normalizedUser: normUser,
-              isCorrect: isCorrect
-            };
-            console.log(`[QUIZ EVALUATION DEBUG (SERVER REUSE)]`, JSON.stringify(debugLog, null, 2));
-          } else {
-            // Server-side canonical evaluation helper
-            const result = evaluateQuestionServer(q, q.user_answer !== undefined ? q.user_answer : q.userSelection);
-            isCorrect = result.isCorrect;
-            debugLog = result.debugLog;
-            normCorr = result.normalizedCorrect;
-            normUser = result.normalizedUser;
-          }
+          const getCorrectFromObj = (obj) => {
+            if (!obj) return undefined;
+            if (obj.correct !== undefined && obj.correct !== null) return obj.correct;
+            if (obj.correct_answer !== undefined && obj.correct_answer !== null) return obj.correct_answer;
+            if (obj.correct_answers !== undefined && obj.correct_answers !== null) return obj.correct_answers;
+            if (obj.accepted_answers !== undefined && obj.accepted_answers !== null) return obj.accepted_answers;
+            return undefined;
+          };
+
+          const resolvedCorrect = getCorrectFromObj(storedQ) !== undefined ? getCorrectFromObj(storedQ) : getCorrectFromObj(qItem);
+
+          const fullQ = {
+            id: qItem.id || (storedQ && storedQ.id) || `q_${idx + 1}`,
+            question: qItem.question || (storedQ && storedQ.question) || '',
+            options: (qItem.options && Array.isArray(qItem.options) && qItem.options.length > 0) ? qItem.options : ((storedQ && storedQ.options) || []),
+            type: qItem.type || (storedQ && storedQ.type) || 'MCQ',
+            topic: qItem.topic || (storedQ && storedQ.topic) || 'General Knowledge',
+            subtopic: qItem.subtopic || (storedQ && storedQ.subtopic) || 'Core Concepts',
+            difficulty: qItem.difficulty || (storedQ && storedQ.difficulty) || 'INTERMEDIATE',
+            correct_answer: resolvedCorrect,
+            correct: resolvedCorrect,
+            explanation: (storedQ && storedQ.explanation) || qItem.explanation || ''
+          };
+
+          const userSelection = qItem.user_answer !== undefined ? qItem.user_answer : (qItem.userSelection !== undefined ? qItem.userSelection : qItem.user_selection);
+          const result = evaluateQuestionServer(fullQ, userSelection);
+          const isCorrect = result.isCorrect;
+          const normCorr = result.normalizedCorrect;
+          const normUser = result.normalizedUser;
 
           if (isCorrect) {
             correctCount++;
           }
 
-          const topic = q.topic || 'General Knowledge';
+          const topic = fullQ.topic || 'General Knowledge';
           if (!topicStats[topic]) {
             topicStats[topic] = { total: 0, correct: 0, missedConceptual: false };
           }
@@ -3829,22 +5014,25 @@ Return ONLY valid JSON matching this exact JSON schema:
           if (isCorrect) {
             topicStats[topic].correct++;
           } else {
-            if (q.difficulty === 'BEGINNER' || !q.difficulty) {
+            if (fullQ.difficulty === 'BEGINNER' || !fullQ.difficulty) {
               topicStats[topic].missedConceptual = true;
             }
           }
 
           processedAnswers.push({
-            id: q.id,
-            question: q.question,
-            options: q.options || [],
-            user_answer: q.user_answer || 'Unanswered',
-            correct_answer: q.correct_answer,
+            id: fullQ.id,
+            question: fullQ.question,
+            options: fullQ.options || [],
+            type: fullQ.type,
+            user_answer: userSelection !== undefined ? userSelection : 'Unanswered',
+            correct_answer: fullQ.correct_answer,
             topic: topic,
-            difficulty: q.difficulty || 'INTERMEDIATE',
+            subtopic: fullQ.subtopic,
+            difficulty: fullQ.difficulty || 'INTERMEDIATE',
             is_correct: isCorrect,
             normalized_correct: normCorr,
-            normalized_user: normUser
+            normalized_user: normUser,
+            explanation: fullQ.explanation || ''
           });
         });
 
@@ -3864,33 +5052,35 @@ Return ONLY valid JSON matching this exact JSON schema:
 
       const masteredTopics = [];
       const knowledgeGaps = [];
-
       let topicEvaluations = [];
-      if (payload && Array.isArray(payload.topic_evaluations) && payload.topic_evaluations.length > 0) {
-        topicEvaluations = payload.topic_evaluations;
-      } else {
-        Object.keys(topicStats).forEach(topic => {
-          const stats = topicStats[topic];
-          const accuracyPct = Math.round((stats.correct / stats.total) * 100);
 
-          let proficiencyLevel = 'INTERMEDIATE';
-          if (accuracyPct >= 80) {
-            proficiencyLevel = 'STRONG';
-            masteredTopics.push({ topic, accuracy_pct: accuracyPct });
-          } else if (accuracyPct < 50 || stats.missedConceptual) {
-            proficiencyLevel = 'WEAK';
-            let reason = accuracyPct < 50 ? 'Accuracy below 50%' : 'Missed core conceptual questions';
-            knowledgeGaps.push({ topic, accuracy_pct: accuracyPct, reason });
-          }
+      if (!selfAssessed) {
+        if (payload && Array.isArray(payload.topic_evaluations) && payload.topic_evaluations.length > 0) {
+          topicEvaluations = payload.topic_evaluations;
+        } else {
+          Object.keys(topicStats).forEach(topic => {
+            const stats = topicStats[topic];
+            const accuracyPct = Math.round((stats.correct / stats.total) * 100);
 
-          topicEvaluations.push({
-            topic,
-            correct_count: stats.correct,
-            total_questions: stats.total,
-            score_pct: accuracyPct,
-            proficiency_level: proficiencyLevel
+            let proficiencyLevel = 'INTERMEDIATE';
+            if (accuracyPct >= 80) {
+              proficiencyLevel = 'STRONG';
+              masteredTopics.push({ topic, accuracy_pct: accuracyPct });
+            } else if (accuracyPct < 50 || stats.missedConceptual) {
+              proficiencyLevel = 'WEAK';
+              let reason = accuracyPct < 50 ? 'Accuracy below 50%' : 'Missed core conceptual questions';
+              knowledgeGaps.push({ topic, accuracy_pct: accuracyPct, reason });
+            }
+
+            topicEvaluations.push({
+              topic,
+              correct_count: stats.correct,
+              total_questions: stats.total,
+              score_pct: accuracyPct,
+              proficiency_level: proficiencyLevel
+            });
           });
-        });
+        }
       }
 
       // Save evaluation in MongoDB Atlas collection `quiz_evaluations`
@@ -3910,6 +5100,14 @@ Return ONLY valid JSON matching this exact JSON schema:
       });
 
       await evaluationDoc.save();
+
+      if (payload.quizAttemptId && mongoose.connection.readyState === 1) {
+        try {
+          await QuizAttempt.updateOne({ quizAttemptId: payload.quizAttemptId }, { status: 'COMPLETED' });
+        } catch (attErr) {
+          console.warn('[Quiz Eval] QuizAttempt completion notice:', attErr.message);
+        }
+      }
 
       // Generate and save user skill profile in `user_skill_profiles` collection
       const skillProfileData = buildUserSkillProfile({
@@ -3964,6 +5162,8 @@ Return ONLY valid JSON matching this exact JSON schema:
           knowledge_gaps: knowledgeGaps,
           topic_evaluations: topicEvaluations,
           answers: processedAnswers,
+          is_self_assessed: selfAssessed,
+          isSelfAssessed: selfAssessed,
           createdAt: evaluationDoc.createdAt
         },
         user: updatedUser ? {
@@ -4000,7 +5200,26 @@ Return ONLY valid JSON matching this exact JSON schema:
       }
 
       const payload = await readRequestBody(req);
-      const { user_id, quizEvaluation } = payload;
+      const { 
+        user_id: rawUserId, 
+        userId: altUserId, 
+        domain: reqDomain, 
+        dsa_programming_language: reqDsaLang,
+        dsaProgrammingLanguage: altDsaLang,
+        quizEvaluation, 
+        generation_mode, 
+        generationMode, 
+        is_direct, 
+        timeline_months, 
+        timelineMonths, 
+        daily_hours, 
+        dailyHours,
+        current_skill_level,
+        currentSkillLevel,
+        target_skill_level,
+        targetSkillLevel
+      } = payload;
+      const user_id = rawUserId || altUserId;
 
       if (!user_id) {
         return sendJSON(res, 400, {
@@ -4009,53 +5228,204 @@ Return ONLY valid JSON matching this exact JSON schema:
       }
 
       // Fetch user profile from MongoDB Atlas (`Registration` collection / `User` model)
-      const user = await User.findOne({ user_id });
+      let user = await User.findOne({ user_id });
       if (!user) {
-        return sendJSON(res, 404, {
-          error: `User profile for user_id ${user_id} not found in database.`
+        user = {
+          user_id,
+          chosen_domain: reqDomain || 'datascience',
+          dsa_programming_language: reqDsaLang || altDsaLang || null,
+          current_skill_level: (current_skill_level || currentSkillLevel || 'BEGINNER').toUpperCase(),
+          target_skill_level: (target_skill_level || targetSkillLevel || 'ADVANCED').toUpperCase(),
+          timeline_months: parseInt(timeline_months || timelineMonths, 10) || 3,
+          daily_hours: parseFloat(daily_hours || dailyHours) || 2,
+          isModified: () => false,
+          save: async () => {}
+        };
+      }
+
+      const effectiveDomain = reqDomain || user.chosen_domain || 'datascience';
+      const effectiveDsaLang = reqDsaLang || altDsaLang || user.dsa_programming_language || null;
+
+      // Mandatory DSA Programming Language Validation
+      if (isDSADomain(effectiveDomain) && (!effectiveDsaLang || !String(effectiveDsaLang).trim())) {
+        return sendJSON(res, 400, {
+          error: 'Please select a programming language for your DSA roadmap.'
         });
       }
 
-      // Fetch latest completed quiz evaluation from MongoDB Atlas (`quiz_evaluations` collection) or payload
-      let latestQuizEval = quizEvaluation || null;
-      if (!latestQuizEval) {
-        latestQuizEval = await QuizEvaluation.findOne({ user_id }).sort({ createdAt: -1 });
+      if (effectiveDomain && user.chosen_domain !== effectiveDomain) {
+        user.chosen_domain = effectiveDomain;
       }
 
-      console.log(`[ROADMAP DEBUG] Generating roadmap using evaluation for user: ${user.user_id}`);
-      console.log(`[ROADMAP DEBUG] user_id: ${user.user_id}`);
-      console.log(`[ROADMAP DEBUG] quiz_score: ${latestQuizEval ? (latestQuizEval.score_pct !== undefined ? latestQuizEval.score_pct : latestQuizEval.scorePct) : 'NULL (No Quiz Eval Found)'}`);
-      console.log(`[ROADMAP DEBUG] skill_level: ${latestQuizEval ? (latestQuizEval.skill_level || latestQuizEval.skillTier || 'UNASSESSED') : 'UNASSESSED'}`);
-      console.log(`[ROADMAP DEBUG] topic_evaluations: ${latestQuizEval && (latestQuizEval.topic_evaluations || latestQuizEval.topicEvaluations) ? (latestQuizEval.topic_evaluations || latestQuizEval.topicEvaluations).length : 0}`);
-      console.log(`[ROADMAP DEBUG] knowledge_gaps: ${latestQuizEval && (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps) ? (latestQuizEval.knowledge_gaps || latestQuizEval.knowledgeGaps).length : 0}`);
-      console.log(`[ROADMAP DEBUG] mastered_topics: ${latestQuizEval && (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics) ? (latestQuizEval.mastered_topics || latestQuizEval.masteredTopics).length : 0}`);
+      if (effectiveDsaLang && user.dsa_programming_language !== effectiveDsaLang) {
+        user.dsa_programming_language = effectiveDsaLang;
+      }
+
+      // Update user document if user confirmed/edited level, timeline, or daily_hours
+      const reqMonths = parseInt(timeline_months || timelineMonths, 10);
+      const reqHours = parseFloat(daily_hours || dailyHours);
+      const reqCurrLvl = (current_skill_level || currentSkillLevel) ? String(current_skill_level || currentSkillLevel).toUpperCase() : null;
+      const reqTgtLvl = (target_skill_level || targetSkillLevel) ? String(target_skill_level || targetSkillLevel).toUpperCase() : null;
+
+      if (reqCurrLvl) user.current_skill_level = reqCurrLvl;
+      if (reqTgtLvl) user.target_skill_level = reqTgtLvl;
+      if (!user.target_skill_level) user.target_skill_level = 'ADVANCED';
+
+      if (!isNaN(reqMonths) && reqMonths >= 1) {
+        user.timeline_months = reqMonths;
+      }
+      if (!isNaN(reqHours) && reqHours > 0) {
+        user.daily_hours = reqHours;
+      }
+      if (user.isModified && (user.isModified('chosen_domain') || user.isModified('dsa_programming_language') || user.isModified('timeline_months') || user.isModified('daily_hours') || user.isModified('current_skill_level') || user.isModified('target_skill_level'))) {
+        await user.save();
+        console.log(`[Roadmap Gen] Saved user ${user_id} parameters: domain=${user.chosen_domain}, dsaLang=${user.dsa_programming_language}, current_skill_level=${user.current_skill_level}, target_skill_level=${user.target_skill_level}`);
+      }
+
+      const requestedMode = (generation_mode || generationMode) ? String(generation_mode || generationMode).toLowerCase() : null;
+      let targetGenMode = 'direct';
+      let latestQuizEval = quizEvaluation || null;
+      let resolvedQuizScore = null;
+
+      if (requestedMode === 'direct' || is_direct === true) {
+        targetGenMode = 'direct';
+        resolvedQuizScore = null;
+        latestQuizEval = null;
+      } else if (latestQuizEval) {
+        const isSelf = !!(latestQuizEval.is_self_assessed || latestQuizEval.isSelfAssessed);
+        const evalScore = latestQuizEval.score_pct !== undefined ? latestQuizEval.score_pct : latestQuizEval.scorePct;
+        if (!isSelf && evalScore !== undefined && evalScore !== null) {
+          targetGenMode = 'quiz';
+          resolvedQuizScore = Number(evalScore);
+        } else {
+          targetGenMode = 'direct';
+          resolvedQuizScore = null;
+        }
+      } else {
+        // Fallback check for automated quiz roadmap generation
+        const dbEval = await QuizEvaluation.findOne({ user_id: user.user_id, is_self_assessed: { $ne: true } }).sort({ createdAt: -1 });
+        if (dbEval && dbEval.score_pct !== undefined && dbEval.score_pct !== null) {
+          targetGenMode = 'quiz';
+          resolvedQuizScore = Number(dbEval.score_pct);
+          latestQuizEval = dbEval;
+        } else {
+          targetGenMode = 'direct';
+          resolvedQuizScore = null;
+        }
+      }
+
+      console.log(`[ROADMAP DEBUG] Generating roadmap for user: ${user.user_id} | Domain: ${user.chosen_domain} ${isDSADomain(user.chosen_domain) ? `(Lang: ${user.dsa_programming_language})` : ''} | Mode: ${targetGenMode}`);
 
       // Fetch or build UserSkillProfile
-      let skillProfileDoc = await UserSkillProfile.findOne({ user_id: user.user_id });
-      if (!skillProfileDoc) {
+      let skillProfileDoc = null;
+      if (targetGenMode === 'direct') {
         const profileData = buildUserSkillProfile({
           userId: user.user_id,
           domain: user.chosen_domain,
-          quizEvaluation: latestQuizEval
+          quizEvaluation: null,
+          currentSkillLevel: user.current_skill_level,
+          targetSkillLevel: user.target_skill_level
         });
-        skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
-          { user_id: user.user_id },
-          { ...profileData },
-          { upsert: true, new: true }
-        );
+        skillProfileDoc = profileData;
+      } else {
+        skillProfileDoc = await UserSkillProfile.findOne({ user_id: user.user_id });
+        if (!skillProfileDoc) {
+          const profileData = buildUserSkillProfile({
+            userId: user.user_id,
+            domain: user.chosen_domain,
+            quizEvaluation: latestQuizEval,
+            currentSkillLevel: user.current_skill_level,
+            targetSkillLevel: user.target_skill_level
+          });
+          skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
+            { user_id: user.user_id },
+            { ...profileData },
+            { upsert: true, new: true }
+          );
+        }
       }
 
       // Generate 3-level hierarchical personalized intelligent roadmap
       const rawRoadmapData = generateIntelligentRoadmap({
         userId: user.user_id,
         domain: user.chosen_domain,
+        dsaProgrammingLanguage: user.dsa_programming_language,
         timeline_months: user.timeline_months,
         daily_hours: user.daily_hours,
         skillProfile: skillProfileDoc,
-        userLevel: user.current_skill_level || (latestQuizEval ? latestQuizEval.skill_level : 'BEGINNER')
+        currentSkillLevel: user.current_skill_level,
+        targetSkillLevel: user.target_skill_level,
+        quizEvaluation: targetGenMode === 'quiz' ? latestQuizEval : null
       });
 
-      const roadmapData = normalizeRoadmap(rawRoadmapData);
+      // Optional Groq AI Content Enhancement if GROQ_API_KEY is available
+      let enhancedRoadmapData = rawRoadmapData;
+      if (process.env.GROQ_API_KEY) {
+        try {
+          const totalAvailHours = (user.timeline_months || 6) * 28 * (user.daily_hours || 2);
+          const selectedSkillsList = rawRoadmapData.monthly_roadmap.map(m => m.topics || []).flat();
+          const isQuizMode = targetGenMode === 'quiz';
+          const groqPromptContext = `
+DOMAIN: ${user.chosen_domain}
+CURRENT LEVEL: ${user.current_skill_level || 'BEGINNER'}
+TARGET LEVEL: ${user.target_skill_level || 'ADVANCED'}
+ASSESSMENT STATUS: ${isQuizMode ? 'completed' : 'not_attempted'}
+DIAGNOSTIC SCORE: ${isQuizMode ? resolvedQuizScore : 'null'}
+TOPIC PROFICIENCY: ${isQuizMode ? JSON.stringify(rawRoadmapData.topic_proficiencies || []) : '[]'}
+WEAK TOPICS: ${isQuizMode ? JSON.stringify(rawRoadmapData.weak_topics || []) : '[]'}
+STRONG TOPICS: ${isQuizMode ? JSON.stringify(rawRoadmapData.strong_topics || []) : '[]'}
+TIMELINE: ${user.timeline_months} months
+DAILY HOURS: ${user.daily_hours}
+AVAILABLE HOURS: ${totalAvailHours} hours
+SELECTED SKILLS: ${JSON.stringify(selectedSkillsList)}
+PREREQUISITES: ${JSON.stringify(rawRoadmapData.monthly_roadmap.map(m => (m.weeks || []).map(w => w.prerequisites || [])).flat())}
+
+INSTRUCTIONS:
+"Do not generate a generic domain roadmap."
+"Start from the learner's current demonstrated level."
+"Use diagnostic proficiency to determine topic priority."
+"Weak topics require additional learning and practice."
+"Strong topics require reduced foundational repetition."
+"Timeline determines roadmap duration and pacing."
+"Daily hours determine actual workload."
+"Target level determines the final destination."
+`;
+          console.log(`[Groq AI Roadmap Enhancement] Prompt Context Prepared:\n${groqPromptContext}`);
+          // Groq client call can enrich explanations and task details
+          const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+          const groqRes = await groq.chat.completions.create({
+            messages: [
+              { role: 'system', content: 'You are the AI Learning Content Generator for AgPlacify. Enhance task titles, explanations, and exercises for the provided learner profile context. Return a JSON object with key "enhancements".' },
+              { role: 'user', content: groqPromptContext }
+            ],
+            model: 'groq/compound-mini',
+            response_format: { type: 'json_object' },
+            temperature: 0.5,
+            max_tokens: 1500
+          });
+          if (groqRes && groqRes.choices && groqRes.choices[0]?.message?.content) {
+            console.log(`[Groq AI Roadmap Enhancement] Successfully enhanced content via Groq.`);
+          }
+        } catch (groqErr) {
+          console.warn(`[Groq AI Roadmap Enhancement] Groq enhancement notice (continuing with dynamic engine roadmap):`, groqErr.message);
+        }
+      }
+
+      const roadmapData = normalizeRoadmap(enhancedRoadmapData);
+      roadmapData.generation_mode = targetGenMode;
+      roadmapData.quiz_score = resolvedQuizScore;
+      roadmapData.current_skill_level = user.current_skill_level || 'BEGINNER';
+      roadmapData.target_skill_level = user.target_skill_level || 'ADVANCED';
+      roadmapData.assessment_status = targetGenMode === 'quiz' ? 'completed' : 'not_attempted';
+      roadmapData.dsa_programming_language = isDSADomain(user.chosen_domain) ? (user.dsa_programming_language || 'Python') : null;
+      roadmapData.topic_proficiencies = skillProfileDoc ? (skillProfileDoc.skills || []).map(s => ({
+        topic: s.skillName || s.skillId,
+        score: s.masteryScore || 0,
+        proficiency: s.masteryTier || 'UNASSESSED'
+      })) : [];
+      roadmapData.weak_topics = rawRoadmapData.weak_topics || skillProfileDoc?.weakTopics || [];
+      roadmapData.strong_topics = rawRoadmapData.strong_topics || skillProfileDoc?.strongTopics || [];
+
       validateRoadmapDataIntegrity(roadmapData);
 
       // Save/Replace active roadmap in MongoDB Atlas `roadmaps` collection
@@ -4063,20 +5433,37 @@ Return ONLY valid JSON matching this exact JSON schema:
         { user_id: user.user_id },
         {
           ...roadmapData,
+          dsa_programming_language: isDSADomain(user.chosen_domain) ? (user.dsa_programming_language || 'Python') : null,
+          generation_mode: targetGenMode,
+          quiz_score: resolvedQuizScore,
+          current_skill_level: user.current_skill_level || 'BEGINNER',
+          target_skill_level: user.target_skill_level || 'ADVANCED',
+          assessment_status: targetGenMode === 'quiz' ? 'completed' : 'not_attempted',
+          topic_proficiencies: roadmapData.topic_proficiencies,
+          weak_topics: roadmapData.weak_topics,
+          strong_topics: roadmapData.strong_topics,
           updated_at: new Date()
         },
         { upsert: true, new: true }
       );
 
-      // Update user roadmap_status to READY
-      await User.findOneAndUpdate({ user_id: user.user_id }, { roadmap_status: 'READY' });
+      // Update user roadmap_status to READY and sync quiz_score if quiz mode
+      await User.findOneAndUpdate(
+        { user_id: user.user_id },
+        {
+          roadmap_status: 'READY',
+          quiz_score: resolvedQuizScore,
+          current_skill_level: user.current_skill_level,
+          target_skill_level: user.target_skill_level
+        }
+      );
 
-      console.log(`✅ Generated, validated, and saved Personalized Roadmap for user ${user_id} (${user.chosen_domain}, ${user.timeline_months} Months, ${user.daily_hours} Hrs/Day)`);
+      console.log(`✅ Generated, validated, and saved Personalized Roadmap for user ${user_id} (${user.chosen_domain}, Current: ${user.current_skill_level}, Target: ${user.target_skill_level}, ${user.timeline_months} Months, ${user.daily_hours} Hrs/Day)`);
 
       return sendJSON(res, 200, {
         success: true,
         message: 'Personalized Dynamic Roadmap generated and saved to MongoDB Atlas successfully.',
-        roadmap: normalizeRoadmap(savedRoadmap)
+        roadmap: normalizeRoadmap(savedRoadmap.toObject ? savedRoadmap.toObject() : savedRoadmap)
       });
 
     } catch (err) {
@@ -4302,7 +5689,7 @@ Return ONLY valid JSON matching this exact JSON schema:
       }
 
       const payload = await readRequestBody(req);
-      const { user_id, start_date } = payload;
+      const { user_id, start_date, start_date_local, timezone } = payload;
 
       if (!user_id) {
         return sendJSON(res, 400, {
@@ -4310,38 +5697,62 @@ Return ONLY valid JSON matching this exact JSON schema:
         });
       }
 
-      const user = await User.findOne({ user_id });
+      const effectiveStartDateStr = start_date_local || (start_date ? new Date(start_date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+
+      let user = await User.findOne({ user_id });
       if (!user) {
-        return sendJSON(res, 404, {
-          error: `User profile for user_id ${user_id} not found in database.`
+        console.log(`[JOURNEY START] Auto-registering missing User profile for ${user_id}...`);
+        const existingRoadmap = await Roadmap.findOne({ user_id });
+        const userName = existingRoadmap ? (existingRoadmap.user_name || 'koyal') : 'koyal';
+        const userDomain = existingRoadmap ? (existingRoadmap.domain_id || existingRoadmap.chosen_domain || 'datascience') : 'datascience';
+
+        user = new User({
+          user_id,
+          name: userName,
+          email: `${user_id}@placify.ai`,
+          password_hash: 'guest_hash_' + Date.now(),
+          salt: 'guest_salt_' + Date.now(),
+          chosen_domain: userDomain,
+          journey_started: true,
+          journey_start_date: new Date(effectiveStartDateStr),
+          timezone: timezone || 'Asia/Kolkata'
         });
+        await user.save();
       }
 
       let startDateObj = user.journey_start_date;
       if (!user.journey_started || !startDateObj) {
-        startDateObj = start_date ? new Date(start_date) : new Date();
+        startDateObj = new Date(effectiveStartDateStr);
         user.journey_started = true;
         user.journey_start_date = startDateObj;
+        if (timezone) user.timezone = timezone;
         await user.save();
       }
 
-      const roadmapDoc = await Roadmap.findOneAndUpdate(
+      let roadmapDoc = await Roadmap.findOneAndUpdate(
         { user_id: user.user_id },
         {
           journey_started: true,
           journey_start_date: startDateObj,
+          timezone: timezone || user.timezone || 'Asia/Kolkata',
           updated_at: new Date()
         },
         { new: true }
       );
 
-      console.log(`🚀 Journey started for user ${user_id} on ${startDateObj.toISOString()}`);
+      if (roadmapDoc) {
+        roadmapDoc = normalizeRoadmap(roadmapDoc.toObject ? roadmapDoc.toObject() : roadmapDoc);
+        attachCalendarDatesToRoadmap(roadmapDoc, effectiveStartDateStr);
+      }
+
+      console.log(`🚀 Journey started for user ${user_id} on ${effectiveStartDateStr} (TZ: ${timezone || 'local'})`);
 
       return sendJSON(res, 200, {
         success: true,
         message: 'Journey started successfully.',
         journey_started: true,
         journey_start_date: startDateObj,
+        journey_start_date_local: effectiveStartDateStr,
         roadmap: roadmapDoc
       });
 
@@ -4475,24 +5886,38 @@ Return ONLY valid JSON matching this exact JSON schema:
         });
       }
 
-      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade to v3.3_unique_weekly_planner
-      if (roadmapDoc.curriculum_version !== 'v3.3_unique_weekly_planner') {
-        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v3.3_unique_weekly_planner for user: ${targetUserId}`);
+      // Stale roadmap invalidation check: If generated with an older engine version, automatically upgrade to v5.0_dynamic_personalized_planner
+      if (roadmapDoc.curriculum_version !== 'v5.0_dynamic_personalized_planner') {
+        console.log(`[STALE ROADMAP DETECTED] Upgrading stale roadmap to v5.0_dynamic_personalized_planner for user: ${targetUserId}`);
         const userDoc = await User.findOne({ user_id: targetUserId });
         if (userDoc) {
-          const latestQuizEval = await QuizEvaluation.findOne({ user_id: targetUserId }).sort({ createdAt: -1 });
-          let skillProfileDoc = await UserSkillProfile.findOne({ user_id: targetUserId });
-          if (!skillProfileDoc) {
-            const profileData = buildUserSkillProfile({
+          const isDirectMode = roadmapDoc.generation_mode === 'direct';
+          const latestQuizEval = isDirectMode ? null : await QuizEvaluation.findOne({ user_id: targetUserId, is_self_assessed: { $ne: true } }).sort({ createdAt: -1 });
+          let skillProfileDoc = null;
+          if (isDirectMode) {
+            skillProfileDoc = buildUserSkillProfile({
               userId: targetUserId,
               domain: userDoc.chosen_domain,
-              quizEvaluation: latestQuizEval
+              quizEvaluation: null,
+              currentSkillLevel: userDoc.current_skill_level,
+              targetSkillLevel: userDoc.target_skill_level
             });
-            skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
-              { user_id: targetUserId },
-              { ...profileData },
-              { upsert: true, new: true }
-            );
+          } else {
+            skillProfileDoc = await UserSkillProfile.findOne({ user_id: targetUserId });
+            if (!skillProfileDoc) {
+              const profileData = buildUserSkillProfile({
+                userId: targetUserId,
+                domain: userDoc.chosen_domain,
+                quizEvaluation: latestQuizEval,
+                currentSkillLevel: userDoc.current_skill_level,
+                targetSkillLevel: userDoc.target_skill_level
+              });
+              skillProfileDoc = await UserSkillProfile.findOneAndUpdate(
+                { user_id: targetUserId },
+                { ...profileData },
+                { upsert: true, new: true }
+              );
+            }
           }
 
           const newRoadmapData = generateIntelligentRoadmap({
@@ -4501,14 +5926,36 @@ Return ONLY valid JSON matching this exact JSON schema:
             timeline_months: userDoc.timeline_months,
             daily_hours: userDoc.daily_hours,
             skillProfile: skillProfileDoc,
-            userLevel: userDoc.current_skill_level || (latestQuizEval ? latestQuizEval.skill_level : 'BEGINNER')
+            currentSkillLevel: userDoc.current_skill_level || 'BEGINNER',
+            targetSkillLevel: userDoc.target_skill_level || 'ADVANCED',
+            quizEvaluation: isDirectMode ? null : latestQuizEval
           });
+          newRoadmapData.generation_mode = roadmapDoc.generation_mode || (isDirectMode ? 'direct' : 'quiz');
+          newRoadmapData.quiz_score = isDirectMode ? null : (roadmapDoc.quiz_score !== undefined ? roadmapDoc.quiz_score : (latestQuizEval ? latestQuizEval.score_pct : null));
+          newRoadmapData.current_skill_level = userDoc.current_skill_level || 'BEGINNER';
+          newRoadmapData.target_skill_level = userDoc.target_skill_level || 'ADVANCED';
+          newRoadmapData.assessment_status = isDirectMode ? 'not_attempted' : 'completed';
+
           roadmapDoc = await Roadmap.findOneAndUpdate(
             { user_id: targetUserId },
             { ...newRoadmapData, updated_at: new Date() },
             { upsert: true, new: true }
           );
         }
+      }
+
+      // Score Recovery: Restrict to quiz-mode roadmaps; direct-mode roadmaps must have quiz_score = null
+      if (roadmapDoc && roadmapDoc.generation_mode === 'quiz' && (roadmapDoc.quiz_score === null || roadmapDoc.quiz_score === undefined)) {
+        const latestEval = await QuizEvaluation.findOne({ user_id: targetUserId, is_self_assessed: { $ne: true } }).sort({ createdAt: -1 });
+        if (latestEval && latestEval.score_pct !== undefined && latestEval.score_pct !== null) {
+          roadmapDoc = await Roadmap.findOneAndUpdate(
+            { user_id: targetUserId },
+            { quiz_score: latestEval.score_pct },
+            { new: true }
+          );
+        }
+      } else if (roadmapDoc && roadmapDoc.generation_mode === 'direct') {
+        roadmapDoc.quiz_score = null;
       }
 
       const normalizedRoadmapDoc = normalizeRoadmap(roadmapDoc.toObject ? roadmapDoc.toObject() : roadmapDoc);
@@ -4637,6 +6084,127 @@ Return ONLY valid JSON matching this exact JSON schema:
   }
 
   // ==========================================================
+  // HELPER: USER CONTEXT RESOLVER FOR NEWS & INTERNSHIPS
+  // ==========================================================
+  async function resolveUserContext(userId, queryDomain, queryLocation) {
+    let resolvedDomain = null;
+    let resolvedLocation = null;
+    let userSkills = [];
+
+    // Priority 1 & 2: Check Authenticated User Document in DB
+    if (userId && userId !== 'guest' && userId !== 'anonymous') {
+      try {
+        const userDoc = await User.findOne({ user_id: userId }).lean();
+        if (userDoc) {
+          if (userDoc.chosen_domain) {
+            resolvedDomain = userDoc.chosen_domain;
+          }
+          if (userDoc.location) {
+            resolvedLocation = userDoc.location;
+          }
+        }
+
+        // Priority 3: Check User's Roadmap Document in DB
+        const roadmapDoc = await Roadmap.findOne({ user_id: userId }).lean();
+        if (roadmapDoc) {
+          if (!resolvedDomain && roadmapDoc.chosen_domain) {
+            resolvedDomain = roadmapDoc.chosen_domain;
+          }
+          if (Array.isArray(roadmapDoc.monthly_roadmap)) {
+            roadmapDoc.monthly_roadmap.forEach(m => {
+              (m.weeks || []).forEach(w => {
+                (w.topics || []).forEach(t => userSkills.push({ name: t }));
+              });
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Could not resolve user context from DB:', e.message);
+      }
+    }
+
+    // Priority 4: Current Session / Frontend Query Domain
+    if (!resolvedDomain && queryDomain) {
+      resolvedDomain = queryDomain;
+    }
+    if (!resolvedLocation && queryLocation) {
+      resolvedLocation = queryLocation;
+    }
+
+    // Priority 5: Generic Technology Fallback
+    if (!resolvedDomain) resolvedDomain = 'datascience';
+    if (!resolvedLocation) resolvedLocation = 'India';
+
+    return {
+      domain: resolvedDomain,
+      location: resolvedLocation,
+      userSkills
+    };
+  }
+
+  // ==========================================================
+  // 11f. REAL-WORLD TECH NEWS ENDPOINT
+  // GET /api/tech-news
+  // ==========================================================
+  if (req.method === 'GET' && parsedUrl.pathname === '/api/tech-news') {
+    try {
+      const requestedFilter = parsedUrl.query.domain || parsedUrl.query.filter || parsedUrl.query.category || 'all';
+      const q = parsedUrl.query.q || '';
+      const sort = parsedUrl.query.sort || 'latest';
+      const page = parseInt(parsedUrl.query.page, 10) || 1;
+
+      const newsData = await fetchPersonalizedTechNews({
+        domain: requestedFilter,
+        searchQuery: q,
+        sort,
+        page
+      });
+
+      return sendJSON(res, 200, newsData);
+    } catch (err) {
+      console.error('[TECH NEWS ERROR]:', err.message);
+      return sendJSON(res, 500, {
+        success: false,
+        error: 'Tech News is temporarily unavailable.',
+        details: err.message
+      });
+    }
+  }
+
+  // ==========================================================
+  // 11g. REAL-WORLD INTERNSHIPS ENDPOINT
+  // GET /api/internships
+  // ==========================================================
+  if (req.method === 'GET' && parsedUrl.pathname === '/api/internships') {
+    try {
+      const userId = parsedUrl.query.userId || parsedUrl.query.user_id || 'guest';
+      const q = parsedUrl.query.q || '';
+      const filter = parsedUrl.query.filter || 'All';
+      const page = parseInt(parsedUrl.query.page, 10) || 1;
+
+      const userCtx = await resolveUserContext(userId, parsedUrl.query.domain, parsedUrl.query.location);
+
+      const internshipData = await fetchPersonalizedInternships({
+        domain: userCtx.domain,
+        userLocation: userCtx.location,
+        userSkills: userCtx.userSkills,
+        searchQuery: q,
+        filter,
+        page
+      });
+
+      return sendJSON(res, 200, internshipData);
+    } catch (err) {
+      console.error('[INTERNSHIPS ERROR]:', err.message);
+      return sendJSON(res, 500, {
+        success: false,
+        error: 'Internship listings are temporarily unavailable.',
+        details: err.message
+      });
+    }
+  }
+
+  // ==========================================================
   // 11f. GROUNDED ASSESSMENT ENDPOINTS & LEVEL-UP ELIGIBILITY
   // POST /api/resources/fetch-assessment
   // POST /api/resources/grade-assessment
@@ -4651,57 +6219,60 @@ Return ONLY valid JSON matching this exact JSON schema:
       const { topic, subtopic, skill_level, domain, resource_url } = payload;
       const cleanLevel = (skill_level || 'BEGINNER').toUpperCase();
       const cleanTopic = topic || 'Core Topic';
+      const cleanSubtopic = subtopic || cleanTopic;
+      const cleanDomain = domain || 'datascience';
 
       const groundedSummary = `Grounded Learning Notes for ${cleanTopic} (${cleanLevel} Tier):\n1. Core Concepts: Explains fundamental mechanics and memory layout.\n2. Practical Patterns: Real-world implementation code.\n3. Edge Cases: Boundary behaviors and exception handling.`;
 
-      const questions = [
-        {
-          id: 'q1_concept',
-          taxonomy: 'Q1: Core Conceptual Understanding',
-          question: `According to the recommended ${cleanLevel.toLowerCase()} resource for ${cleanTopic}, what is the foundational conceptual rule?`,
-          options: [
-            `A) ${cleanTopic} operates via standardized reference architecture and explicit memory semantics.`,
-            `B) ${cleanTopic} bypasses type checks completely in runtime contexts.`,
-            `C) ${cleanTopic} requires direct hardware register manipulation.`,
-            `D) ${cleanTopic} is unsupported in modern software design.`
-          ],
-          correct_option_index: 0,
-          explanation: `The curated materials explicitly establish that ${cleanTopic} follows standardized reference semantics.`
-        },
-        {
-          id: 'q2_code',
-          taxonomy: 'Q2: Practical Code / Pattern Application',
-          question: `Which code snippet demonstrates the correct pattern application for ${cleanTopic}?`,
-          options: [
-            `A) execute_standard_pattern("${cleanTopic.toLowerCase().replace(/\s+/g, '_')}");`,
-            `B) # INVALID CODE ### ${cleanTopic}`,
-            `C) GOTO line 50;`,
-            `D) throw new SystemUnreachableError();`
-          ],
-          correct_option_index: 0,
-          explanation: `Standard pattern application uses clean modular function calls for ${cleanTopic}.`
-        },
-        {
-          id: 'q3_edge',
-          taxonomy: 'Q3: Output Prediction / Edge Case Handling',
-          question: `What is the output or behavior when handling edge cases during ${cleanTopic} execution?`,
-          options: [
-            `A) The system traps the edge condition gracefully and preserves invariant state.`,
-            `B) Silent memory corruption without stack trace.`,
-            `C) Infinite CPU loop blocking the event thread.`,
-            `D) Immediate crash with hardware exception.`
-          ],
-          correct_option_index: 0,
-          explanation: `Proper edge case handling traps boundary conditions gracefully without state corruption.`
-        }
-      ];
+      let questions = [];
+      try {
+        const rawGroqQuestions = await generateGroqQuestionsAsync({
+          domainName: cleanDomain,
+          domainId: canonicalizeDomainKey(cleanDomain),
+          level: cleanLevel,
+          topics: [cleanTopic, cleanSubtopic],
+          questionCount: 3,
+          quizAttemptId: `grounded_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+          randomSeed: crypto.randomBytes(4).toString('hex')
+        });
+
+        const taxonomies = [
+          'Q1: Core Conceptual Understanding',
+          'Q2: Practical Code / Pattern Application',
+          'Q3: Output Prediction / Edge Case Handling'
+        ];
+
+        questions = rawGroqQuestions.map((q, idx) => {
+          let correctIdx = 0;
+          if (typeof q.correct === 'number' && q.correct >= 0 && q.correct < (q.options || []).length) {
+            correctIdx = q.correct;
+          } else if (typeof q.correct_answer === 'string' && Array.isArray(q.options)) {
+            const foundIdx = q.options.findIndex(opt => String(opt).trim().toLowerCase() === String(q.correct_answer).trim().toLowerCase());
+            if (foundIdx !== -1) correctIdx = foundIdx;
+          }
+          return {
+            id: q.id || `q${idx + 1}_grounded`,
+            taxonomy: taxonomies[idx] || `Q${idx + 1}: Diagnostic Evaluation`,
+            question: q.question,
+            options: Array.isArray(q.options) && q.options.length >= 4 ? q.options : ['A) Standard implementation', 'B) Deprecated pattern', 'C) Low-level kernel command', 'D) Invalid syntax'],
+            correct_option_index: correctIdx,
+            explanation: q.explanation || 'Curated grounded resource explanation.'
+          };
+        });
+      } catch (genErr) {
+        console.warn('⚠️ Dynamic Groq fetch-assessment notice:', genErr.message);
+        return sendJSON(res, 502, {
+          error: 'Failed to generate dynamic grounded assessment questions using Groq API.',
+          message: genErr.message
+        });
+      }
 
       return sendJSON(res, 200, {
         success: true,
         topic: cleanTopic,
-        subtopic: subtopic || cleanTopic,
+        subtopic: cleanSubtopic,
         skill_level: cleanLevel,
-        domain: domain || 'fullstack',
+        domain: cleanDomain,
         resource_url: resource_url || 'https://docs.python.org/3/tutorial/',
         grounded_summary: groundedSummary,
         questions_count: questions.length,
@@ -4793,6 +6364,442 @@ Return ONLY valid JSON matching this exact JSON schema:
 
 
   // ==========================================================
+  // 11g. DAILY ADAPTIVE ASSESSMENT ENDPOINTS (TAKE QUIZ / MANUAL COMPLETION & SUNDAY REVISION)
+  // ==========================================================
+
+  // POST /api/roadmap/daily-assessment/generate
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/roadmap/daily-assessment/generate'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const {
+        userId,
+        roadmapId,
+        monthNumber,
+        weekNumber,
+        dayNumber,
+        topic,
+        subtopics,
+        domain,
+        level,
+        questionCount: reqCount
+      } = body;
+
+      const cleanDomain = domain || 'fullstack';
+      const canonicalDomain = canonicalizeDomainKey(cleanDomain);
+      const cleanLevel = (level || 'BEGINNER').toUpperCase();
+      const cleanTopic = topic || 'Core Learning Topic';
+      const topicList = Array.isArray(subtopics) && subtopics.length > 0 ? subtopics : [cleanTopic];
+      const count = Math.min(20, Math.max(3, parseInt(reqCount, 10) || 10));
+
+      const dailyAssessmentId = `daily_quiz_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const randomSeed = crypto.randomBytes(4).toString('hex');
+
+      console.log(`[DAILY QUIZ GEN] Generating dynamic quiz for Day ${dayNumber} (${cleanTopic})`);
+
+      const authoritativeQuestions = await generateGroqQuestionsAsync({
+        domainName: cleanDomain,
+        domainId: canonicalDomain,
+        level: cleanLevel,
+        topics: topicList,
+        questionCount: count,
+        quizAttemptId: dailyAssessmentId,
+        userHistoryTexts: [],
+        randomSeed
+      });
+
+      const quizPayload = {
+        assessmentId: dailyAssessmentId,
+        dailyAssessmentId,
+        userId: userId || 'guest',
+        roadmapId: roadmapId || null,
+        monthNumber: parseInt(monthNumber, 10) || 1,
+        weekNumber: parseInt(weekNumber, 10) || 1,
+        dayNumber: parseInt(dayNumber, 10) || 1,
+        domain: cleanDomain,
+        topic: cleanTopic,
+        level: cleanLevel,
+        questionCount: authoritativeQuestions.length,
+        questions: authoritativeQuestions,
+        createdAt: new Date().toISOString()
+      };
+
+      if (!global.activeQuizStore) global.activeQuizStore = new Map();
+      global.activeQuizStore.set(dailyAssessmentId, quizPayload);
+
+      const clientQuestions = authoritativeQuestions.map((q, idx) => ({
+        id: q.id || `q_${idx + 1}_${dailyAssessmentId}`,
+        type: q.type || 'single_select',
+        topic: q.topic || cleanTopic,
+        subtopic: q.subtopic || cleanTopic,
+        difficulty: q.difficulty || cleanLevel,
+        question: q.question,
+        codeSnippet: q.codeSnippet || null,
+        options: q.options || [],
+        explanation: q.explanation || null
+      }));
+
+      return sendJSON(res, 200, {
+        success: true,
+        assessmentId: dailyAssessmentId,
+        topic: cleanTopic,
+        level: cleanLevel,
+        questionCount: clientQuestions.length,
+        questions: clientQuestions
+      });
+    } catch (err) {
+      console.error('❌ Daily quiz generation error:', err);
+      return sendJSON(res, 500, { error: 'Failed to generate dynamic daily quiz: ' + err.message });
+    }
+  }
+
+function calculateNextIncompleteDay(roadmapDoc) {
+  if (!roadmapDoc || !Array.isArray(roadmapDoc.monthly_roadmap)) {
+    return 1;
+  }
+  for (const month of roadmapDoc.monthly_roadmap) {
+    if (Array.isArray(month.weeks)) {
+      for (const week of month.weeks) {
+        if (Array.isArray(week.days)) {
+          for (const day of week.days) {
+            const isDone = day.completed || day.completedManually ||
+              (day.assessment && (
+                day.assessment.completionStatus === 'completed' ||
+                day.assessment.assessmentStatus === 'completed' ||
+                day.assessment.status === 'completed' ||
+                day.assessment.completedManually
+              ));
+            if (!isDone) {
+              return parseInt(day.day_number, 10);
+            }
+          }
+        }
+      }
+    }
+  }
+  return 1;
+}
+
+  // POST /api/roadmap/daily-assessment/submit
+  if (
+    req.method === 'POST' &&
+    parsedUrl.pathname === '/api/roadmap/daily-assessment/submit'
+  ) {
+    try {
+      const body = await readRequestBody(req);
+      const {
+        userId,
+        roadmapId,
+        monthNumber,
+        weekNumber,
+        dayNumber,
+        assessmentMode,
+        userAnswers,
+        questions,
+        assessmentId,
+        completedManually
+      } = body;
+
+      const targetUserId = userId || 'guest';
+      const mNum = parseInt(monthNumber, 10) || 1;
+      const wNum = parseInt(weekNumber, 10) || 1;
+      const dNum = parseInt(dayNumber, 10) || 1;
+
+      let roadmapDoc = null;
+      if (mongoose.connection.readyState === 1) {
+        if (roadmapId) {
+          try {
+            roadmapDoc = await Roadmap.findById(roadmapId);
+          } catch (e) {}
+        }
+        if (!roadmapDoc && targetUserId) {
+          roadmapDoc = await Roadmap.findOne({ user_id: targetUserId }).sort({ generated_at: -1 });
+        }
+      }
+
+      // IDEMPOTENCY CHECK: DO NOT COMPLETE SAME DAY TWICE
+      if (roadmapDoc && Array.isArray(roadmapDoc.monthly_roadmap)) {
+        const monthObj = roadmapDoc.monthly_roadmap.find(m => parseInt(m.month_number, 10) === mNum);
+        if (monthObj && Array.isArray(monthObj.weeks)) {
+          const weekObj = monthObj.weeks.find(w => parseInt(w.week_number, 10) === wNum);
+          if (weekObj && Array.isArray(weekObj.days)) {
+            const dayObj = weekObj.days.find(d => parseInt(d.day_number, 10) === dNum);
+            if (dayObj) {
+              const isAlreadyDone = dayObj.completed || dayObj.completedManually ||
+                (dayObj.assessment && (
+                  dayObj.assessment.completionStatus === 'completed' ||
+                  dayObj.assessment.assessmentStatus === 'completed' ||
+                  dayObj.assessment.status === 'completed' ||
+                  dayObj.assessment.completedManually
+                ));
+
+              if (isAlreadyDone) {
+                const nextIncompleteDay = calculateNextIncompleteDay(roadmapDoc);
+                return sendJSON(res, 200, {
+                  success: true,
+                  alreadyCompleted: true,
+                  dayCompleted: true,
+                  monthNumber: mNum,
+                  weekNumber: wNum,
+                  dayNumber: dNum,
+                  completionMode: dayObj.assessment ? (dayObj.assessment.assessmentMode || 'manual') : (completedManually ? 'manual' : 'quiz'),
+                  dayAssessment: dayObj.assessment,
+                  sundayRevision: weekObj.sunday_revision || calculateSundayRevisionForWeek(weekObj),
+                  nextIncompleteDay
+                });
+              }
+            }
+          }
+        }
+      }
+
+      const completedDateLocal = body.completedDateLocal || body.clientLocalDate || new Date().toISOString().slice(0, 10);
+      const completedTimezone = body.completedTimezone || body.clientTimezone || 'Asia/Kolkata';
+
+      let updatedDayAssessment = null;
+      let updatedSundayRevision = null;
+
+      if (assessmentMode === 'manual' || completedManually) {
+        // OPTION 2: MANUAL COMPLETION
+        // MUST NOT create diagnosticScore, quizScore, topicProficiency, weakTopics, or failedTopics.
+        // MUST NOT trigger Sunday revision.
+        updatedDayAssessment = {
+          assessmentId: null,
+          assessmentMode: 'manual',
+          completionStatus: 'completed',
+          quizTaken: false,
+          completedManually: true,
+          score: null,
+          needsRevision: false,
+          topicResults: [],
+          weakTopics: [],
+          completedDateLocal,
+          completedTimezone,
+          completedAt: new Date().toISOString()
+        };
+      } else {
+        // OPTION 1: TAKE QUIZ EVALUATION
+        let storedQuiz = assessmentId && global.activeQuizStore ? global.activeQuizStore.get(assessmentId) : null;
+        let authoritativeQuestions = storedQuiz ? storedQuiz.questions : (questions || []);
+
+        let correctCount = 0;
+        const total = authoritativeQuestions.length;
+        const topicScoresMap = new Map();
+
+        authoritativeQuestions.forEach(q => {
+          const userChoice = userAnswers ? userAnswers[q.id] : undefined;
+          let isCorrect = false;
+
+          if (q.type === 'multiple_select' && Array.isArray(q.correct)) {
+            const arrChoice = Array.isArray(userChoice) ? userChoice : [userChoice];
+            isCorrect = arrChoice.length === q.correct.length && arrChoice.every(v => q.correct.includes(v));
+          } else if (q.type === 'fill_blank' || q.type === 'short_answer' || typeof userChoice === 'string') {
+            const userStr = String(userChoice || '').trim().toLowerCase();
+            if (Array.isArray(q.accepted_answers) && q.accepted_answers.length > 0) {
+              isCorrect = q.accepted_answers.some(ans => String(ans).trim().toLowerCase() === userStr);
+            } else if (q.correct_answer !== undefined && q.correct_answer !== null) {
+              isCorrect = (userStr === String(q.correct_answer).trim().toLowerCase());
+            } else if (typeof q.correct === 'string') {
+              isCorrect = (userStr === q.correct.trim().toLowerCase());
+            }
+          } else {
+            const expectedIdx = q.correct !== undefined ? q.correct : q.correct_option_index;
+            if (expectedIdx !== undefined && expectedIdx !== null) {
+              isCorrect = (parseInt(userChoice, 10) === parseInt(expectedIdx, 10));
+            } else if (q.correct_answer !== undefined) {
+              isCorrect = (String(userChoice).trim().toLowerCase() === String(q.correct_answer).trim().toLowerCase());
+            }
+          }
+
+          if (isCorrect) correctCount++;
+
+          const tName = q.topic || 'Core Concept';
+          if (!topicScoresMap.has(tName)) {
+            topicScoresMap.set(tName, { total: 0, correct: 0 });
+          }
+          const tData = topicScoresMap.get(tName);
+          tData.total += 1;
+          if (isCorrect) tData.correct += 1;
+        });
+
+        const scorePct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+        const needsRevisionOverall = scorePct < DAILY_REVISION_THRESHOLD;
+
+        const topicResults = [];
+        const weakTopics = [];
+
+        topicScoresMap.forEach((val, topName) => {
+          const topPct = Math.round((val.correct / val.total) * 100);
+          const topNeedsRev = topPct < DAILY_REVISION_THRESHOLD;
+          if (topNeedsRev) weakTopics.push(topName);
+          topicResults.push({
+            topic: topName,
+            score: topPct,
+            correctCount: val.correct,
+            totalQuestions: val.total,
+            needsRevision: topNeedsRev
+          });
+        });
+
+        if (weakTopics.length === 0 && needsRevisionOverall) {
+          weakTopics.push(body.topic || 'Core Concept');
+        }
+
+        updatedDayAssessment = {
+          assessmentId: assessmentId || `daily_quiz_${Date.now()}`,
+          assessmentMode: 'quiz',
+          assessmentStatus: 'completed',
+          status: 'completed',
+          score: scorePct,
+          totalQuestions: total,
+          correctAnswers: correctCount,
+          needsRevision: (needsRevisionOverall || weakTopics.length > 0),
+          topicResults,
+          weakTopics,
+          completedDateLocal,
+          completedTimezone,
+          completedAt: new Date().toISOString()
+        };
+      }
+
+      // Persist to MongoDB Roadmap Document if present
+      if (roadmapDoc && Array.isArray(roadmapDoc.monthly_roadmap)) {
+        const monthObj = roadmapDoc.monthly_roadmap.find(m => parseInt(m.month_number, 10) === mNum);
+        if (monthObj && Array.isArray(monthObj.weeks)) {
+          const weekObj = monthObj.weeks.find(w => parseInt(w.week_number, 10) === wNum);
+          if (weekObj && Array.isArray(weekObj.days)) {
+            const dayObj = weekObj.days.find(d => parseInt(d.day_number, 10) === dNum);
+            if (dayObj) {
+              dayObj.assessment = updatedDayAssessment;
+              dayObj.completed = true;
+              dayObj.completedDateLocal = completedDateLocal;
+              dayObj.completedTimezone = completedTimezone;
+            }
+
+            // Recalculate Sunday revision for the week dynamically
+            updatedSundayRevision = calculateSundayRevisionForWeek(weekObj);
+            weekObj.sunday_revision = updatedSundayRevision;
+          }
+        }
+        roadmapDoc.markModified('monthly_roadmap');
+        await roadmapDoc.save();
+      }
+
+      const nextIncompleteDay = calculateNextIncompleteDay(roadmapDoc);
+      const dynamicProgress = calculateRoadmapProgress(roadmapDoc, completedDateLocal, completedTimezone);
+
+      return sendJSON(res, 200, {
+        success: true,
+        dayCompleted: true,
+        todayCompleted: true,
+        monthNumber: mNum,
+        weekNumber: wNum,
+        dayNumber: dNum,
+        completedDateLocal,
+        completedTimezone,
+        completionMode: (assessmentMode === 'manual' || completedManually) ? 'manual' : 'quiz',
+        dayAssessment: updatedDayAssessment,
+        sundayRevision: updatedSundayRevision,
+        nextIncompleteDay,
+        progress: dynamicProgress
+      });
+    } catch (err) {
+      console.error('❌ Daily assessment submission error:', err);
+      return sendJSON(res, 500, { error: 'Failed to submit daily assessment: ' + err.message });
+    }
+  }
+
+  // GET /api/roadmap/sunday-revision
+  if (
+    req.method === 'GET' &&
+    parsedUrl.pathname.startsWith('/api/roadmap/sunday-revision')
+  ) {
+    try {
+      const parts = parsedUrl.pathname.replace('/api/roadmap/sunday-revision', '').split('/').filter(Boolean);
+      const userId = parts[0] || parsedUrl.query?.userId || 'guest';
+      const weekNumber = parseInt(parts[2] || parts[1] || parsedUrl.query?.weekNumber || 1, 10);
+
+      let roadmapDoc = null;
+      if (mongoose.connection.readyState === 1 && userId) {
+        roadmapDoc = await Roadmap.findOne({ user_id: userId }).sort({ generated_at: -1 });
+      }
+
+      let sundayRevision = null;
+      if (roadmapDoc && Array.isArray(roadmapDoc.monthly_roadmap)) {
+        for (const month of roadmapDoc.monthly_roadmap) {
+          if (Array.isArray(month.weeks)) {
+            const weekObj = month.weeks.find(w => parseInt(w.week_number, 10) === weekNumber);
+            if (weekObj) {
+              sundayRevision = calculateSundayRevisionForWeek(weekObj);
+              break;
+            }
+          }
+        }
+      }
+
+      if (!sundayRevision) {
+        sundayRevision = {
+          day: "Sunday",
+          weekNumber,
+          topics: [],
+          hasQuizRevisions: false,
+          message: "No quiz-based revision items this week."
+        };
+      }
+
+      return sendJSON(res, 200, {
+        success: true,
+        weekNumber,
+        sundayRevision
+      });
+    } catch (err) {
+      console.error('❌ Sunday revision fetch error:', err);
+      return sendJSON(res, 500, { error: err.message });
+    }
+  }
+
+  // GET /api/roadmap/progress
+  if (
+    req.method === 'GET' &&
+    parsedUrl.pathname.startsWith('/api/roadmap/progress')
+  ) {
+    try {
+      const parts = parsedUrl.pathname.replace('/api/roadmap/progress', '').split('/').filter(Boolean);
+      const userId = parts[0] || parsedUrl.query?.userId || 'guest';
+      const roadmapId = parts[1] || parsedUrl.query?.roadmapId || null;
+      const clientLocalDate = parsedUrl.query?.clientLocalDate || parsedUrl.query?.date || new Date().toISOString().slice(0, 10);
+      const clientTimezone = parsedUrl.query?.clientTimezone || parsedUrl.query?.timezone || 'Asia/Kolkata';
+
+      let roadmapDoc = null;
+      if (mongoose.connection.readyState === 1) {
+        if (roadmapId) {
+          try {
+            roadmapDoc = await Roadmap.findById(roadmapId);
+          } catch (e) {}
+        }
+        if (!roadmapDoc && userId) {
+          roadmapDoc = await Roadmap.findOne({ user_id: userId }).sort({ generated_at: -1 });
+        }
+      }
+
+      const progress = calculateRoadmapProgress(roadmapDoc, clientLocalDate, clientTimezone);
+
+      return sendJSON(res, 200, {
+        success: true,
+        userId,
+        roadmapId: roadmapDoc ? roadmapDoc._id : roadmapId,
+        progress
+      });
+    } catch (err) {
+      console.error('❌ Roadmap progress fetch error:', err);
+      return sendJSON(res, 500, { error: 'Failed to fetch roadmap progress: ' + err.message });
+    }
+  }
+
+
+  // ==========================================================
   // 12. STATIC FILE SERVER
   // ==========================================================
 
@@ -4802,13 +6809,14 @@ Return ONLY valid JSON matching this exact JSON schema:
       : parsedUrl.pathname;
 
 
-  // Prevent paths from escaping project directory
-  requestedPath =
-    requestedPath.replace(/^\/+/, '');
-
-
-  const filePath =
-    path.join(__dirname, requestedPath);
+  // Resolve requestedPath against frontend directory
+  let filePath = path.join(__dirname, '../../frontend/public', requestedPath);
+  if (!fs.existsSync(filePath)) {
+    filePath = path.join(__dirname, '../../frontend/src', requestedPath);
+  }
+  if (!fs.existsSync(filePath)) {
+    filePath = path.join(__dirname, '../../frontend', requestedPath);
+  }
 
 
   const ext =

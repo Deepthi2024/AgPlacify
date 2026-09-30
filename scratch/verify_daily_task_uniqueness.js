@@ -1,6 +1,6 @@
-const { getKnowledgeGraph } = require('../engine/knowledgeGraph');
-const { buildUserSkillProfile } = require('../engine/skillProfiler');
-const { generateIntelligentRoadmap, validateRoadmap, validateDailyTasks } = require('../engine/roadmapPlanner');
+const { getKnowledgeGraph } = require('../backend/engine/knowledgeGraph');
+const { buildUserSkillProfile } = require('../backend/engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap, validateDailyTasks } = require('../backend/engine/roadmapPlanner');
 
 const testCases = [
   {

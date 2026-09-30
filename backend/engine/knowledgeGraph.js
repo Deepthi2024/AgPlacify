@@ -2143,6 +2143,203 @@ const DOMAIN_CONFIG = {
 };
 
 /**
+ * Helper to check if a domain string represents DSA
+ */
+function isDSADomain(rawDomain) {
+  if (!rawDomain || typeof rawDomain !== 'string') return false;
+  const clean = rawDomain.trim().toLowerCase();
+  return clean === 'dsa' ||
+         clean === 'data structures & algorithms' ||
+         clean === 'data-structures-algorithms' ||
+         clean === 'datastructures' ||
+         clean.includes('dsa') ||
+         clean.includes('algorithm') ||
+         clean.includes('data structure');
+}
+
+/**
+ * Generates Phase 1: Programming Language Basics topic for selected DSA language
+ */
+function getDSALanguageBasicsTopic(rawLang) {
+  const langKey = (rawLang || 'python').toLowerCase();
+  let langDisplayName = 'Python';
+  let subtopicName = 'Python Syntax & Fundamentals';
+  let skills = [];
+
+  if (langKey.includes('cpp') || langKey.includes('c++')) {
+    langDisplayName = 'C++';
+    subtopicName = 'C++ Syntax & Fundamentals';
+    skills = [
+      {
+        skillId: 'cpp_syntax_fundamentals',
+        skillName: 'C++ Syntax & Basic Program Structure',
+        prerequisites: [],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'cpp_syntax_iostream', skillName: 'C++ Syntax, iostream & Input/Output', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'cpp_vars_types_ops', skillName: 'Variables, Data Types & Operators', prerequisites: ['cpp_syntax_iostream'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'cpp_control_functions',
+        skillName: 'C++ Control Flow & Functions',
+        prerequisites: ['cpp_syntax_fundamentals'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'cpp_conditionals_loops', skillName: 'Conditionals (if/else) & Loops (for/while)', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'cpp_func_params', skillName: 'Functions, Pass-by-Value & Pass-by-Reference', prerequisites: ['cpp_conditionals_loops'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'cpp_memory_stl_basics',
+        skillName: 'C++ Memory, Strings & STL Prerequisite Basics',
+        prerequisites: ['cpp_control_functions'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 4,
+        subskills: [
+          { subskillId: 'cpp_arrays_strings', skillName: 'C++ Arrays & std::string Operations', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'cpp_pointers_refs_basics', skillName: 'Pointers & References Basics', prerequisites: ['cpp_arrays_strings'], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'cpp_stl_basics_intro', skillName: 'C++ STL Vectors, Maps & Basic Problem Solving', prerequisites: ['cpp_pointers_refs_basics'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      }
+    ];
+  } else if (langKey.includes('javascript') || langKey.includes('js')) {
+    langDisplayName = 'JavaScript';
+    subtopicName = 'JavaScript Syntax & Fundamentals';
+    skills = [
+      {
+        skillId: 'js_syntax_fundamentals',
+        skillName: 'JavaScript Syntax & Core Variables',
+        prerequisites: [],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'js_syntax_variables', skillName: 'JS Syntax, let/const & Data Types', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'js_operators_expressions', skillName: 'Operators & Type Conversions', prerequisites: ['js_syntax_variables'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'js_control_functions',
+        skillName: 'JavaScript Control Flow & Functions',
+        prerequisites: ['js_syntax_fundamentals'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'js_conditionals_loops', skillName: 'Conditionals & Loops (for/while/for-of)', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'js_functions_arrow', skillName: 'Functions, Arrow Functions & Scope', prerequisites: ['js_conditionals_loops'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'js_objects_collections_basics',
+        skillName: 'JavaScript Arrays, Strings & Objects Basics',
+        prerequisites: ['js_control_functions'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 4,
+        subskills: [
+          { subskillId: 'js_arrays_strings', skillName: 'JS Arrays & String Manipulation', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'js_objects_maps_sets', skillName: 'JS Objects, Maps & Sets for Fast Lookups', prerequisites: ['js_arrays_strings'], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'js_problem_solving_intro', skillName: 'Basic Problem Solving in JavaScript', prerequisites: ['js_objects_maps_sets'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      }
+    ];
+  } else if (langKey.includes('java')) {
+    langDisplayName = 'Java';
+    subtopicName = 'Java Syntax & Fundamentals';
+    skills = [
+      {
+        skillId: 'java_syntax_fundamentals',
+        skillName: 'Java Syntax & Basic Program Structure',
+        prerequisites: [],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'java_syntax_structure', skillName: 'Java Program Structure & Main Method', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'java_vars_types_ops', skillName: 'Variables, Data Types & Operators', prerequisites: ['java_syntax_structure'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'java_control_methods',
+        skillName: 'Java Control Flow & Methods',
+        prerequisites: ['java_syntax_fundamentals'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'java_conditionals_loops', skillName: 'Conditionals & Loops (for/while/do-while)', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'java_methods_scope', skillName: 'Java Methods & Parameters', prerequisites: ['java_conditionals_loops'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'java_oop_collections_basics',
+        skillName: 'Java Arrays, Strings & Collections Basics',
+        prerequisites: ['java_control_methods'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 4,
+        subskills: [
+          { subskillId: 'java_arrays_strings', skillName: 'Java Arrays & StringBuilder Manipulation', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'java_classes_objects_basics', skillName: 'Classes, Objects & Basic OOP', prerequisites: ['java_arrays_strings'], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'java_collections_dsa_intro', skillName: 'Java Collections Basics (ArrayList, HashMap) & Problem Solving', prerequisites: ['java_classes_objects_basics'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      }
+    ];
+  } else {
+    // Default: Python
+    langDisplayName = 'Python';
+    subtopicName = 'Python Syntax & Fundamentals';
+    skills = [
+      {
+        skillId: 'python_syntax_fundamentals',
+        skillName: 'Python Syntax & Core Principles',
+        prerequisites: [],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'python_syntax_io', skillName: 'Python Syntax, Indentation & Input/Output', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'python_vars_types_ops', skillName: 'Variables, Primitive Data Types & Operators', prerequisites: ['python_syntax_io'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'python_control_functions',
+        skillName: 'Python Control Flow & Functions',
+        prerequisites: ['python_syntax_fundamentals'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 3,
+        subskills: [
+          { subskillId: 'python_conditionals_loops', skillName: 'Conditionals (if/elif/else) & Loops (for/while)', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'python_functions_scope', skillName: 'Functions, Parameters & Return Values', prerequisites: ['python_conditionals_loops'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      },
+      {
+        skillId: 'python_collections_basics',
+        skillName: 'Python Collections, Strings & Exception Handling',
+        prerequisites: ['python_control_functions'],
+        difficulty: 'BEGINNER',
+        estimatedHours: 4,
+        subskills: [
+          { subskillId: 'python_lists_tuples_sets', skillName: 'Python Lists, Tuples & Sets', prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'python_dicts_strings', skillName: 'Dictionaries & String Manipulation', prerequisites: ['python_lists_tuples_sets'], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+          { subskillId: 'python_errors_problem_solving', skillName: 'Basic Error Handling & Problem Solving in Python', prerequisites: ['python_dicts_strings'], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+        ]
+      }
+    ];
+  }
+
+  return {
+    id: `dsa_top_${langKey.replace(/[^a-z0-9]/g, '')}_basics`,
+    name: `Programming Language Basics (${langDisplayName})`,
+    phase: 'programming-language-basics',
+    subtopics: [
+      {
+        id: `dsa_sub_${langKey.replace(/[^a-z0-9]/g, '')}_basics`,
+        name: subtopicName,
+        skills
+      }
+    ]
+  };
+}
+
+/**
  * Normalizes domain key
  */
 function normalizeDomainKey(rawDomain) {
@@ -2161,43 +2358,83 @@ function normalizeDomainKey(rawDomain) {
 /**
  * Returns Knowledge Graph for given domain (with dynamic fallback generator for arbitrary domains)
  */
-function getKnowledgeGraph(rawDomain) {
+function getKnowledgeGraph(rawDomain, dsaLanguage) {
   const domainKey = normalizeDomainKey(rawDomain);
-  if (DOMAIN_KNOWLEDGE_GRAPHS[domainKey]) {
-    return DOMAIN_KNOWLEDGE_GRAPHS[domainKey];
+  let graph = DOMAIN_KNOWLEDGE_GRAPHS[domainKey];
+
+  if (!graph) {
+    // Dynamic Graph Generator fallback for arbitrary domains
+    const sanitizedDomain = (rawDomain || 'Technology').trim();
+    graph = {
+      domainId: domainKey,
+      domainName: sanitizedDomain,
+      topics: [
+        {
+          id: `${domainKey}_topic_fund`,
+          name: `${sanitizedDomain} Fundamentals`,
+          subtopics: [
+            {
+              id: `${domainKey}_sub_basics`,
+              name: 'Core Concepts & Tooling',
+              skills: [
+                {
+                  skillId: `${domainKey}_basics`,
+                  skillName: `${sanitizedDomain} Core Principles`,
+                  prerequisites: [],
+                  difficulty: 'BEGINNER',
+                  estimatedHours: 4,
+                  subskills: [
+                    { subskillId: `${domainKey}_sub_concept1`, subskillName: `${sanitizedDomain} Foundation Overview`, skillName: `${sanitizedDomain} Foundation Overview`, prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
+                    { subskillId: `${domainKey}_sub_concept2`, subskillName: `${sanitizedDomain} Applied Syntax`, skillName: `${sanitizedDomain} Applied Syntax`, prerequisites: [`${domainKey}_sub_concept1`], difficulty: 'BEGINNER', estimatedMinutes: 45 }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
   }
 
-  // Dynamic Graph Generator fallback for arbitrary domains
-  const sanitizedDomain = (rawDomain || 'Technology').trim();
-  return {
-    domainId: domainKey,
-    domainName: sanitizedDomain,
-    topics: [
-      {
-        id: `${domainKey}_topic_fund`,
-        name: `${sanitizedDomain} Fundamentals`,
-        subtopics: [
-          {
-            id: `${domainKey}_sub_basics`,
-            name: 'Core Concepts & Tooling',
-            skills: [
-              {
-                skillId: `${domainKey}_basics`,
-                skillName: `${sanitizedDomain} Core Principles`,
-                prerequisites: [],
-                difficulty: 'BEGINNER',
-                estimatedHours: 4,
-                subskills: [
-                  { subskillId: `${domainKey}_sub_concept1`, subskillName: `${sanitizedDomain} Foundation Overview`, skillName: `${sanitizedDomain} Foundation Overview`, prerequisites: [], difficulty: 'BEGINNER', estimatedMinutes: 45 },
-                  { subskillId: `${domainKey}_sub_concept2`, subskillName: `${sanitizedDomain} Applied Syntax`, skillName: `${sanitizedDomain} Applied Syntax`, prerequisites: [`${domainKey}_sub_concept1`], difficulty: 'BEGINNER', estimatedMinutes: 45 }
-                ]
-              }
-            ]
-          }
-        ]
+  // Inject DSA Programming Language Basics Topic if rawDomain is DSA
+  if (isDSADomain(rawDomain) || domainKey === 'dsa') {
+    const chosenLang = dsaLanguage || 'python';
+    const langBasicsTopic = getDSALanguageBasicsTopic(chosenLang);
+
+    // Deep clone the DSA graph so we don't mutate global state for subsequent calls
+    const clonedGraph = JSON.parse(JSON.stringify(graph));
+
+    // Check if langBasicsTopic is already present
+    const exists = clonedGraph.topics.some(t => t.id === langBasicsTopic.id || (t.name && t.name.startsWith('Programming Language Basics')));
+    if (!exists) {
+      // Find the last skill ID in langBasicsTopic to set as a prerequisite for DSA Foundation
+      let lastLangSkillId = null;
+      if (langBasicsTopic.subtopics && langBasicsTopic.subtopics[0] && langBasicsTopic.subtopics[0].skills) {
+        const lastSkill = langBasicsTopic.subtopics[0].skills[langBasicsTopic.subtopics[0].skills.length - 1];
+        if (lastSkill) lastLangSkillId = lastSkill.skillId;
       }
-    ]
-  };
+
+      // Prepend language basics topic at index 0 (Phase 1)
+      clonedGraph.topics.unshift(langBasicsTopic);
+
+      // Set lastLangSkillId as prerequisite on the first skill of DSA Foundation (`dsa_top_fund`)
+      if (lastLangSkillId && clonedGraph.topics.length > 1) {
+        const dsaFoundationTopic = clonedGraph.topics.find(t => t.id === 'dsa_top_fund');
+        if (dsaFoundationTopic && dsaFoundationTopic.subtopics && dsaFoundationTopic.subtopics[0] && dsaFoundationTopic.subtopics[0].skills) {
+          const firstFoundationSkill = dsaFoundationTopic.subtopics[0].skills[0];
+          if (firstFoundationSkill && Array.isArray(firstFoundationSkill.prerequisites)) {
+            if (!firstFoundationSkill.prerequisites.includes(lastLangSkillId)) {
+              firstFoundationSkill.prerequisites.push(lastLangSkillId);
+            }
+          }
+        }
+      }
+    }
+
+    return clonedGraph;
+  }
+
+  return graph;
 }
 
 /**
@@ -2340,6 +2577,8 @@ function getOrderedSubskillsForSkill(skillNode) {
 module.exports = {
   DOMAIN_KNOWLEDGE_GRAPHS,
   DOMAIN_CONFIG,
+  isDSADomain,
+  getDSALanguageBasicsTopic,
   normalizeDomainKey,
   getKnowledgeGraph,
   getAllSkillsInGraph,

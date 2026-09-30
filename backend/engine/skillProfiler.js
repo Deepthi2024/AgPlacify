@@ -24,13 +24,16 @@ function getMasteryTier(scorePct) {
 /**
  * Generates user skill profile from quiz evaluation / quiz answers or historical quiz data
  */
-function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile }) {
+function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile, currentSkillLevel, targetSkillLevel }) {
   const graph = getKnowledgeGraph(domain);
   const allSkills = getAllSkillsInGraph(graph);
 
+  const curLevel = (currentSkillLevel || (existingProfile && existingProfile.current_skill_level) || 'BEGINNER').toUpperCase();
+  const tgtLevel = (targetSkillLevel || (existingProfile && existingProfile.target_skill_level) || 'ADVANCED').toUpperCase();
+
   const skillStatsMap = new Map();
 
-  // Initialize all skills in graph with base metadata
+  // Initialize all skills in graph without manufacturing fake mastery scores
   allSkills.forEach(sk => {
     skillStatsMap.set(sk.skillId, {
       skillId: sk.skillId,
@@ -38,11 +41,11 @@ function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile
       subtopic: sk.subtopicName,
       skillName: sk.skillName,
       masteryScore: 0,
-      masteryTier: 'NOT_LEARNED',
-      confidence: 0.1,
+      masteryTier: 'UNASSESSED',
+      confidence: 0,
       evidence: { correct: 0, total: 0 },
       level: sk.difficulty || 'BEGINNER',
-      lastAssessedAt: new Date()
+      lastAssessedAt: null
     });
   });
 
@@ -50,21 +53,23 @@ function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile
   if (existingProfile && Array.isArray(existingProfile.skills)) {
     existingProfile.skills.forEach(s => {
       if (skillStatsMap.has(s.skillId)) {
-        const score = s.masteryScore || 0;
+        const score = s.masteryScore !== undefined ? s.masteryScore : 0;
         skillStatsMap.set(s.skillId, {
           ...skillStatsMap.get(s.skillId),
           masteryScore: score,
-          masteryTier: getMasteryTier(score),
-          confidence: s.confidence || 0.1,
+          masteryTier: s.masteryTier || getMasteryTier(score),
+          confidence: s.confidence || 0,
           evidence: s.evidence || { correct: 0, total: 0 },
           level: s.level || 'BEGINNER',
-          lastAssessedAt: s.lastAssessedAt || new Date()
+          lastAssessedAt: s.lastAssessedAt || null
         });
       }
     });
   }
 
-  if (quizEvaluation) {
+  const hasQuiz = !!(quizEvaluation && !quizEvaluation.is_self_assessed && !quizEvaluation.isSelfAssessed && quizEvaluation.score_pct !== null && quizEvaluation.scorePct !== null);
+
+  if (hasQuiz) {
     const answers = Array.isArray(quizEvaluation.answers) ? quizEvaluation.answers : [];
 
     if (answers.length > 0) {
@@ -105,14 +110,21 @@ function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile
           if (accuracyPct >= 80) stats.level = 'ADVANCED';
           else if (accuracyPct >= 50) stats.level = 'INTERMEDIATE';
           else stats.level = 'BEGINNER';
+          stats.lastAssessedAt = new Date();
         }
       });
 
     } else if (Array.isArray(quizEvaluation.topic_evaluations) && quizEvaluation.topic_evaluations.length > 0) {
-      // Derived baseline from historical topic evaluations
+      // Derived evaluation from historical topic evaluations
       quizEvaluation.topic_evaluations.forEach(tEval => {
         const tName = (tEval.topic || '').toLowerCase();
-        allSkills.filter(s => s.topicName.toLowerCase().includes(tName) || tName.includes(s.topicName.toLowerCase())).forEach(s => {
+        const tTokens = tName.split(/[\s_-]+/).map(k => k.substring(0, 4)).filter(k => k.length >= 3);
+
+        allSkills.filter(s => {
+          const sName = s.topicName.toLowerCase();
+          if (sName.includes(tName) || tName.includes(sName)) return true;
+          return tTokens.some(tok => sName.includes(tok));
+        }).forEach(s => {
           const stats = skillStatsMap.get(s.skillId);
           if (stats) {
             const score = tEval.score_pct !== undefined ? tEval.score_pct : 50;
@@ -123,14 +135,14 @@ function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile
             if (score >= 80) stats.level = 'ADVANCED';
             else if (score >= 50) stats.level = 'INTERMEDIATE';
             else stats.level = 'BEGINNER';
+            stats.lastAssessedAt = new Date();
           }
         });
       });
 
-    } else {
-      // Fallback baseline from quiz overall score / declared skill level
-      const overallScore = quizEvaluation.score_pct !== undefined ? quizEvaluation.score_pct : (quizEvaluation.scorePct || 40);
-      const overallLevel = quizEvaluation.skill_level || 'BEGINNER';
+    } else if (quizEvaluation.score_pct !== undefined || quizEvaluation.scorePct !== undefined) {
+      const overallScore = quizEvaluation.score_pct !== undefined ? quizEvaluation.score_pct : quizEvaluation.scorePct;
+      const overallLevel = quizEvaluation.skill_level || curLevel;
 
       allSkills.forEach(s => {
         const stats = skillStatsMap.get(s.skillId);
@@ -145,18 +157,55 @@ function buildUserSkillProfile({ userId, domain, quizEvaluation, existingProfile
           stats.masteryTier = getMasteryTier(stats.masteryScore);
           stats.confidence = 0.5;
           stats.level = overallLevel;
+          stats.lastAssessedAt = new Date();
         }
       });
     }
   }
 
   const skillsArray = Array.from(skillStatsMap.values());
+  const weakTopics = hasQuiz ? skillsArray.filter(s => s.masteryTier === 'WEAK').map(s => s.topic || s.skillName || s.skillId) : [];
+  const strongTopics = hasQuiz ? skillsArray.filter(s => s.masteryTier === 'STRONG' || s.masteryTier === 'MASTERED').map(s => s.topic || s.skillName || s.skillId) : [];
+  const diagnosticScore = hasQuiz ? (quizEvaluation.score_pct !== undefined ? quizEvaluation.score_pct : quizEvaluation.scorePct) : null;
+
+  let assumedMasteredPrerequisites = [];
+  if (!hasQuiz) {
+    if (curLevel === 'INTERMEDIATE') {
+      assumedMasteredPrerequisites = allSkills
+        .filter(s => s.difficulty === 'BEGINNER')
+        .map(s => ({
+          topic: s.topicName || s.skillName,
+          skillId: s.skillId,
+          reason: 'Strong — assumed from self-assessed Intermediate level',
+          level: 'BEGINNER',
+          status: 'assumed_mastered'
+        }));
+    } else if (curLevel === 'ADVANCED') {
+      assumedMasteredPrerequisites = allSkills
+        .filter(s => s.difficulty === 'BEGINNER' || s.difficulty === 'INTERMEDIATE')
+        .map(s => ({
+          topic: s.topicName || s.skillName,
+          skillId: s.skillId,
+          reason: `Strong — assumed from self-assessed Advanced level`,
+          level: s.difficulty || 'INTERMEDIATE',
+          status: 'assumed_mastered'
+        }));
+    }
+  }
 
   return {
     userId,
     domain: graph.domainName,
     domainId: graph.domainId,
     skills: skillsArray,
+    assessmentStatus: hasQuiz ? 'completed' : 'not_attempted',
+    diagnosticScore,
+    weakTopics,
+    strongTopics,
+    assumedMasteredPrerequisites,
+    declaredLevelPrerequisites: assumedMasteredPrerequisites,
+    current_skill_level: curLevel,
+    target_skill_level: tgtLevel,
     updatedAt: new Date()
   };
 }

@@ -1,7 +1,7 @@
-const { getKnowledgeGraph, getAllSkillsInGraph } = require('../engine/knowledgeGraph');
-const { buildUserSkillProfile, updateSkillMastery } = require('../engine/skillProfiler');
-const { generateIntelligentRoadmap, validateRoadmap } = require('../engine/roadmapPlanner');
-const { recalculateAdaptiveRoadmap } = require('../engine/adaptiveEngine');
+const { getKnowledgeGraph, getAllSkillsInGraph } = require('../backend/engine/knowledgeGraph');
+const { buildUserSkillProfile, updateSkillMastery } = require('../backend/engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap } = require('../backend/engine/roadmapPlanner');
+const { recalculateAdaptiveRoadmap } = require('../backend/engine/adaptiveEngine');
 
 async function runUnitTests() {
   console.log('🧪 ========================================================');
@@ -180,8 +180,9 @@ async function runUnitTests() {
     dbModels: {}
   });
 
+  const skillObj = updatedProfileHigh.skills.find(s => s.skillId === 'py_vars' || s.skillId === 'ds_py_vars' || s.skillId.includes('var')) || updatedProfileHigh.skills[0];
   console.log(`   Updated version: "${adaptedRmHigh.curriculum_version}"`);
-  console.log(`   py_vars mastery score: ${updatedProfileHigh.skills.find(s => s.skillId === 'py_vars').masteryScore}%`);
+  console.log(`   ${skillObj.skillId} mastery score: ${skillObj.masteryScore}%`);
 
   if (adaptedRmHigh.curriculum_version === 'v3_adaptive_replanned') {
     console.log('   ✅ PASS: Adaptive replanning updated future roadmap on mastery increase.\n');
@@ -202,7 +203,8 @@ async function runUnitTests() {
     dbModels: {}
   });
 
-  console.log(`   py_control mastery score: ${updatedProfileLow.skills.find(s => s.skillId === 'py_control').masteryScore}%`);
+  const skillObjLow = updatedProfileLow.skills.find(s => s.skillId === 'py_control' || s.skillId.includes('ctrl') || s.skillId.includes('control')) || updatedProfileLow.skills[0];
+  console.log(`   ${skillObjLow.skillId} mastery score: ${skillObjLow.masteryScore}%`);
   console.log(`   Remediation version: "${adaptedRmLow.curriculum_version}"`);
 
   if (adaptedRmLow.curriculum_version === 'v3_adaptive_replanned') {

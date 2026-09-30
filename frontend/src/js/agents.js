@@ -361,57 +361,23 @@ class AuthAgent {
      ========================================================== */
 
   setActiveSession(profile) {
-
-    localStorage.setItem(
-      this.sessionKey,
-      JSON.stringify(profile)
-    );
+    window.SafeStorage.setItem(this.sessionKey, profile);
   }
-
 
   /* ==========================================================
      GET ACTIVE SESSION
      ========================================================== */
 
   getActiveSession() {
-
-    try {
-
-      const raw =
-        localStorage.getItem(
-          this.sessionKey
-        );
-
-
-      if (!raw) {
-        return null;
-      }
-
-
-      return JSON.parse(raw);
-
-
-    } catch (error) {
-
-      console.error(
-        '❌ Could not read active session:',
-        error
-      );
-
-      return null;
-    }
+    return window.SafeStorage.getItem(this.sessionKey);
   }
-
 
   /* ==========================================================
      LOGOUT
      ========================================================== */
 
   clearSession() {
-
-    localStorage.removeItem(
-      this.sessionKey
-    );
+    window.SafeStorage.removeItem(this.sessionKey);
   }
 
 }
@@ -652,44 +618,61 @@ class QuizEvaluatorAgent {
     const isSelfAssessed = !!(answersInput && (answersInput.isSelfAssessed || answersInput.is_self_assessed));
     if (isSelfAssessed) {
       const selfLevel = (answersInput.skillTier || answersInput.skill_level || 'BEGINNER').toUpperCase();
-      let selfScore = 40;
-      if (selfLevel === 'ADVANCED') selfScore = 85;
-      else if (selfLevel === 'INTERMEDIATE') selfScore = 65;
 
-      const weakTopicNames = answersInput.weakTopicNames || [];
-      const domainTopics = domainObj.topics || Array.from(new Set((domainObj.diagnostics || []).map(d => d.topic))).filter(Boolean);
-      
-      const knowledgeGaps = weakTopicNames.map(t => ({
-        topic: t,
-        accuracy_pct: 30,
-        reason: 'User self-identified this topic as needing practice.'
-      }));
+      let assumedMasteredPrerequisites = [];
+      let intermediateTopics = [];
 
-      const weakTopics = weakTopicNames.map(t => ({
-        topic: t,
-        score_pct: 30,
-        reason: 'User self-identified topic for remediation.'
-      }));
+      if (domainObj && Array.isArray(domainObj.diagnostics)) {
+        const beginnerMap = new Map();
+        const interMap = new Map();
 
-      const masteredTopics = domainTopics.filter(t => !weakTopicNames.includes(t)).map(t => ({
-        topic: t,
-        accuracy_pct: selfScore
-      }));
+        domainObj.diagnostics.forEach(q => {
+          const diff = (q.difficulty || 'BEGINNER').toUpperCase();
+          const topicName = q.topic;
+          if (!topicName) return;
 
-      const topicEvaluations = domainTopics.map(t => ({
-        topic: t,
-        correct_count: weakTopicNames.includes(t) ? 0 : 1,
-        total_questions: 1,
-        score_pct: weakTopicNames.includes(t) ? 30 : selfScore,
-        proficiency_level: weakTopicNames.includes(t) ? 'WEAK' : (selfLevel === 'ADVANCED' ? 'STRONG' : 'INTERMEDIATE')
-      }));
+          if (diff === 'BEGINNER') {
+            if (!beginnerMap.has(topicName)) {
+              beginnerMap.set(topicName, {
+                topic: topicName,
+                skillId: q.id || topicName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                reason: `Strong — assumed from self-assessed ${selfLevel} level`,
+                level: 'BEGINNER',
+                status: 'assumed_mastered'
+              });
+            }
+          } else if (diff === 'INTERMEDIATE') {
+            if (!interMap.has(topicName)) {
+              interMap.set(topicName, {
+                topic: topicName,
+                skillId: q.id || topicName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                reason: selfLevel === 'INTERMEDIATE' 
+                  ? 'Declared starting level. Dynamic roadmap configured for active intermediate training.'
+                  : `Strong — assumed from self-assessed ${selfLevel} level`,
+                level: 'INTERMEDIATE',
+                status: selfLevel === 'INTERMEDIATE' ? 'active_target' : 'assumed_mastered'
+              });
+            }
+          }
+        });
+
+        if (selfLevel === 'INTERMEDIATE') {
+          assumedMasteredPrerequisites = Array.from(beginnerMap.values());
+          intermediateTopics = Array.from(interMap.values());
+        } else if (selfLevel === 'ADVANCED') {
+          assumedMasteredPrerequisites = [
+            ...Array.from(beginnerMap.values()),
+            ...Array.from(interMap.values())
+          ];
+        }
+      }
 
       const evaluationResult = {
         user_id,
         domain: domainName,
         domainId,
-        scorePct: selfScore,
-        score_pct: selfScore,
+        scorePct: null,
+        score_pct: null,
         correctCount: 0,
         correct_count: 0,
         totalQuestions: 0,
@@ -698,21 +681,27 @@ class QuizEvaluatorAgent {
         skillTier: selfLevel,
         skill_tier: selfLevel,
         skill_level: selfLevel,
-        levelDescription: `User manually self-assessed proficiency as ${selfLevel}.`,
-        level_description: `User manually self-assessed proficiency as ${selfLevel}.`,
-        masteredTopics,
-        mastered_topics: masteredTopics,
-        knowledgeGaps,
-        knowledge_gaps: knowledgeGaps,
-        topicEvaluations,
-        topic_evaluations: topicEvaluations,
-        weakTopics,
-        intermediateTopics: [],
-        strongTopics: masteredTopics,
-        gaps: knowledgeGaps,
-        mastered: masteredTopics,
-        answers: [],
+        levelDescription: `User self-assessed proficiency as ${selfLevel}. Diagnostic quiz not attempted.`,
+        level_description: `User self-assessed proficiency as ${selfLevel}. Diagnostic quiz not attempted.`,
         isSelfAssessed: true,
+        is_self_assessed: true,
+        assessmentStatus: 'not_attempted',
+        assessment_status: 'not_attempted',
+        masteredTopics: [],
+        mastered_topics: [],
+        knowledgeGaps: [],
+        knowledge_gaps: [],
+        topicEvaluations: [],
+        topic_evaluations: [],
+        weakTopics: [],
+        intermediateTopics: intermediateTopics,
+        strongTopics: [],
+        assumedMasteredPrerequisites: assumedMasteredPrerequisites,
+        assumed_mastered_prerequisites: assumedMasteredPrerequisites,
+        declaredLevelPrerequisites: assumedMasteredPrerequisites,
+        gaps: [],
+        mastered: [],
+        answers: [],
         evaluatedAt: new Date().toISOString()
       };
 
@@ -726,11 +715,20 @@ class QuizEvaluatorAgent {
             answers: [],
             is_self_assessed: true,
             skill_level: selfLevel,
-            topic_evaluations: topicEvaluations
+            topic_evaluations: []
           })
         });
         const data = await res.json();
         console.log('✅ Self-Assessment evaluation persisted to MongoDB Atlas:', data);
+        if (data) {
+          const serverEval = data.evaluation || data.profile || data;
+          if (Array.isArray(serverEval.assumedMasteredPrerequisites) && serverEval.assumedMasteredPrerequisites.length > 0) {
+            assumedMasteredPrerequisites = serverEval.assumedMasteredPrerequisites;
+            evaluationResult.assumedMasteredPrerequisites = assumedMasteredPrerequisites;
+            evaluationResult.declaredLevelPrerequisites = assumedMasteredPrerequisites;
+            evaluationResult.assumed_mastered_prerequisites = assumedMasteredPrerequisites;
+          }
+        }
       } catch (err) {
         console.warn('⚠️ Could not persist self-assessment to backend server:', err.message);
       }
@@ -987,7 +985,7 @@ class QuizEvaluatorAgent {
       evaluatedAt: new Date().toISOString()
     };
 
-    // Async save to MongoDB Atlas backend (awaited)
+    // Async save to MongoDB Atlas backend & return authoritative server evaluation
     try {
       const res = await fetch('http://localhost:5000/api/quiz/evaluate', {
         method: 'POST',
@@ -997,12 +995,38 @@ class QuizEvaluatorAgent {
         body: JSON.stringify({
           user_id,
           domain: domainName,
+          quizAttemptId: (answersInput && answersInput.quizAttemptId) || window.currentQuizAttemptId,
           answers: formattedQuestions,
           topic_evaluations: topicEvaluations
         })
       });
       const data = await res.json();
       console.log('✅ Quiz Evaluation persisted to MongoDB Atlas collection quiz_evaluations:', data);
+      if (data && data.evaluation) {
+        const serverEval = data.evaluation;
+        return {
+          ...evaluationResult,
+          ...serverEval,
+          scorePct: serverEval.score_pct !== undefined ? serverEval.score_pct : evaluationResult.scorePct,
+          score_pct: serverEval.score_pct !== undefined ? serverEval.score_pct : evaluationResult.score_pct,
+          correctCount: serverEval.correct_count !== undefined ? serverEval.correct_count : evaluationResult.correctCount,
+          correct_count: serverEval.correct_count !== undefined ? serverEval.correct_count : evaluationResult.correct_count,
+          totalQuestions: serverEval.total_questions !== undefined ? serverEval.total_questions : evaluationResult.totalQuestions,
+          total_questions: serverEval.total_questions !== undefined ? serverEval.total_questions : evaluationResult.total_questions,
+          skillTier: serverEval.skill_level || evaluationResult.skillTier,
+          skill_tier: serverEval.skill_level || evaluationResult.skill_tier,
+          skill_level: serverEval.skill_level || evaluationResult.skill_level,
+          levelDescription: serverEval.level_description || evaluationResult.levelDescription,
+          level_description: serverEval.level_description || evaluationResult.level_description,
+          masteredTopics: serverEval.mastered_topics || evaluationResult.masteredTopics,
+          mastered_topics: serverEval.mastered_topics || evaluationResult.mastered_topics,
+          knowledgeGaps: serverEval.knowledge_gaps || evaluationResult.knowledgeGaps,
+          knowledge_gaps: serverEval.knowledge_gaps || evaluationResult.knowledge_gaps,
+          topicEvaluations: serverEval.topic_evaluations || evaluationResult.topicEvaluations,
+          topic_evaluations: serverEval.topic_evaluations || evaluationResult.topic_evaluations,
+          answers: serverEval.answers || formattedQuestions
+        };
+      }
     } catch (err) {
       console.warn('⚠️ Could not persist quiz evaluation to backend server:', err.message);
     }
@@ -1558,48 +1582,45 @@ class ResourceFetcherAgent {
     conceptTitle,
     topic
   ) {
+    if (window.currentDailyAssessmentContext && Array.isArray(window.currentDailyAssessmentContext.questions) && window.currentDailyAssessmentContext.questions.length > 0) {
+      return {
+        conceptTitle,
+        topic,
+        retrievedContentSummary: `Dynamic Diagnostic Assessment for ${topic}. Grounded in current daily curriculum materials.`,
+        questions: window.currentDailyAssessmentContext.questions
+      };
+    }
+
+    if (window.currentDailyQuestions && Array.isArray(window.currentDailyQuestions) && window.currentDailyQuestions.length > 0) {
+      return {
+        conceptTitle,
+        topic,
+        retrievedContentSummary: `Dynamic Diagnostic Assessment for ${topic}. Grounded in current daily curriculum materials.`,
+        questions: window.currentDailyQuestions
+      };
+    }
 
     const assessmentBank =
-      window.PLACIFY_DATA
-        .conceptAssessments[topic] ||
-      window.PLACIFY_DATA
-        .conceptAssessments['Default'];
-
+      (window.PLACIFY_DATA && window.PLACIFY_DATA.conceptAssessments) ?
+        (window.PLACIFY_DATA.conceptAssessments[topic] || window.PLACIFY_DATA.conceptAssessments['Default'] || []) : [];
 
     const questions =
       assessmentBank.map(
         (q, index) => ({
-
-          id:
-            `ca_${index + 1}`,
-
-          question:
-            q.question,
-
-          options:
-            q.options,
-
-          correct:
-            q.correct,
-
-          explanation:
-            q.explanation
-
+          id: `ca_${index + 1}`,
+          question: q.question,
+          options: q.options,
+          correct: q.correct,
+          explanation: q.explanation
         })
       );
 
-
     return {
-
       conceptTitle,
-
       topic,
-
       retrievedContentSummary:
         `Interactive lecture notes, code snippets, and design patterns compiled for ${conceptTitle}. Grounded in curated MDN, W3C, and Placify Academy technical documentation.`,
-
       questions
-
     };
   }
 
@@ -1738,137 +1759,203 @@ class ResourceFetcherAgent {
    7. PROGRESS TRACKER AGENT
    ============================================================ */
 
+/* ============================================================
+   SAFE STORAGE HELPER WITH QUOTA PROTECTION & IN-MEMORY FALLBACK
+   ============================================================ */
+
+class SafeStorageUtility {
+  constructor() {
+    this.memoryStore = new Map();
+  }
+
+  // Sanitize full state object into a compact representation for localStorage
+  sanitizeState(state) {
+    if (!state || typeof state !== 'object') return state;
+
+    return {
+      isOnboarded: !!state.isOnboarded,
+      userProfile: state.userProfile ? {
+        user_id: state.userProfile.user_id,
+        name: state.userProfile.name,
+        email: state.userProfile.email,
+        chosen_domain: state.userProfile.chosen_domain || state.userProfile.domainId,
+        current_skill_level: state.userProfile.current_skill_level || state.userProfile.skill_level || state.userProfile.directedLevel || 'BEGINNER',
+        timeline_months: state.userProfile.timeline_months || state.userProfile.timelineMonths || 4,
+        daily_hours: state.userProfile.daily_hours || state.userProfile.dailyHours || 2.0,
+        quiz_completed: !!state.userProfile.quiz_completed,
+        last_route: state.userProfile.last_route || 'roadmap'
+      } : null,
+
+      // Compact Evaluation Summary (omit full question arrays, raw option choices, explanations)
+      evaluationSummary: state.evaluation ? {
+        score_pct: state.evaluation.score_pct !== undefined ? state.evaluation.score_pct : (state.evaluation.scorePct || 0),
+        correct_count: state.evaluation.correct_count !== undefined ? state.evaluation.correct_count : (state.evaluation.correctCount || 0),
+        total_questions: state.evaluation.total_questions !== undefined ? state.evaluation.total_questions : (state.evaluation.totalQuestions || 0),
+        skill_level: state.evaluation.skill_level || state.evaluation.skillLevel || state.evaluation.skillTier || 'BEGINNER',
+        level_description: state.evaluation.level_description || state.evaluation.levelDescription || '',
+        mastered_topics: Array.isArray(state.evaluation.mastered_topics) ? state.evaluation.mastered_topics : [],
+        knowledge_gaps: Array.isArray(state.evaluation.knowledge_gaps) ? state.evaluation.knowledge_gaps : []
+      } : (state.evaluationSummary || null),
+
+      // Compact Roadmap Metadata (omit massive monthly_roadmap tree and 120-item dailyTasks array)
+      roadmapMeta: (state.personalizedRoadmap || state.roadmapMeta) ? {
+        domain: (state.personalizedRoadmap && state.personalizedRoadmap.domain) || state.domain || 'fullstack',
+        generation_mode: (state.personalizedRoadmap && state.personalizedRoadmap.generation_mode) || (state.roadmapMeta && state.roadmapMeta.generation_mode) || ((state.personalizedRoadmap && state.personalizedRoadmap.quiz_score !== null && state.personalizedRoadmap.quiz_score !== undefined) ? 'quiz' : 'direct'),
+        quiz_score: ((state.personalizedRoadmap && state.personalizedRoadmap.generation_mode === 'direct') || (state.roadmapMeta && state.roadmapMeta.generation_mode === 'direct'))
+          ? null
+          : ((state.personalizedRoadmap && (state.personalizedRoadmap.quiz_score !== undefined ? state.personalizedRoadmap.quiz_score : state.personalizedRoadmap.quizScore)) !== undefined
+            ? (state.personalizedRoadmap.quiz_score !== undefined ? state.personalizedRoadmap.quiz_score : state.personalizedRoadmap.quizScore)
+            : (state.evaluation && !state.evaluation.isSelfAssessed && !state.evaluation.is_self_assessed ? (state.evaluation.score_pct !== undefined ? state.evaluation.score_pct : state.evaluation.scorePct) : null)),
+        timelineMonths: (state.personalizedRoadmap && (state.personalizedRoadmap.timeline_months || state.personalizedRoadmap.timelineMonths)) || 4,
+        dailyHours: (state.personalizedRoadmap && (state.personalizedRoadmap.daily_hours || state.personalizedRoadmap.dailyHours)) || 2.0,
+        updatedAt: (state.personalizedRoadmap && state.personalizedRoadmap.updated_at) || new Date().toISOString()
+      } : null,
+
+      currentDayIndex: state.currentDayIndex || 0,
+      masteryPct: state.masteryPct || 0,
+      xp: state.xp || 0,
+      streak: state.streak || 1,
+      lastCompletedDate: state.lastCompletedDate || null,
+      badges: Array.isArray(state.badges) ? state.badges.slice(-10) : ['🐣 Fresh Start'],
+      level: state.level || 1,
+      levelUpEligible: !!state.levelUpEligible,
+
+      // Cap history array to max 15 recent items
+      history: Array.isArray(state.history) ? state.history.slice(-15) : []
+    };
+  }
+
+  setItem(key, value) {
+    try {
+      const stringified = typeof value === 'string' ? value : JSON.stringify(value);
+      localStorage.setItem(key, stringified);
+      this.memoryStore.set(key, value);
+      return true;
+    } catch (err) {
+      console.warn(`[SafeStorage] localStorage.setItem failed for key "${key}": ${err.message}. Using memory fallback.`);
+      this.memoryStore.set(key, value);
+
+      // Attempt recovery by stripping heavy keys if key is placify_user_state
+      if (key === 'placify_user_state' && typeof value === 'object') {
+        try {
+          const compact = this.sanitizeState(value);
+          localStorage.setItem(key, JSON.stringify(compact));
+          console.log('[SafeStorage] Successfully saved sanitized compact state to localStorage.');
+        } catch (retryErr) {
+          console.warn('[SafeStorage] Quota exceeded on retry. Operating safely in memory.');
+        }
+      }
+      return false;
+    }
+  }
+
+  getItem(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.warn(`[SafeStorage] Could not parse localStorage key "${key}": ${err.message}`);
+    }
+    return this.memoryStore.get(key) || null;
+  }
+
+  removeItem(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (err) {}
+    this.memoryStore.delete(key);
+  }
+
+  migrateLegacyState(key = 'placify_user_state') {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+
+      // Check if state is oversized or contains legacy full roadmap / questions
+      if (raw.length > 20000 || raw.includes('monthly_roadmap') || raw.includes('dailyTasks') || raw.includes('answers')) {
+        console.log('[SafeStorage] Detected oversized legacy user state. Sanitizing...');
+        const parsed = JSON.parse(raw);
+        const compact = this.sanitizeState(parsed);
+        localStorage.setItem(key, JSON.stringify(compact));
+        console.log(`[SafeStorage] Successfully migrated legacy state: Reduced size from ${raw.length} bytes to ${JSON.stringify(compact).length} bytes.`);
+      }
+    } catch (err) {
+      console.warn('[SafeStorage] Legacy state migration error:', err);
+    }
+  }
+}
+
+window.SafeStorage = new SafeStorageUtility();
+
 class ProgressTrackerAgent {
 
   constructor() {
-
-    this.storageKey =
-      'placify_user_state';
+    this.storageKey = 'placify_user_state';
   }
-
 
   /* ==========================================================
      DEFAULT STATE
      ========================================================== */
 
   getDefaultState() {
-
     return {
-
-      isOnboarded:
-        false,
-
-      userProfile:
-        null,
-
-      evaluation:
-        null,
-
-      personalizedRoadmap:
-        null,
-
-      currentDayIndex:
-        0,
-
-      masteryPct:
-        0,
-
-      xp:
-        0,
-
-      streak:
-        1,
-
-      lastCompletedDate:
-        null,
-
-      badges:
-        ['🐣 Fresh Start'],
-
-      level:
-        1,
-
-      levelUpEligible:
-        false,
-
-      history:
-        []
-
+      isOnboarded: false,
+      userProfile: null,
+      evaluation: null,
+      evaluationSummary: null,
+      personalizedRoadmap: null,
+      roadmapMeta: null,
+      currentDayIndex: 0,
+      masteryPct: 0,
+      xp: 0,
+      streak: 1,
+      lastCompletedDate: null,
+      badges: ['🐣 Fresh Start'],
+      level: 1,
+      levelUpEligible: false,
+      history: []
     };
   }
-
 
   /* ==========================================================
      GET USER STATE
      ========================================================== */
 
   getUserState() {
-
     try {
+      window.SafeStorage.migrateLegacyState(this.storageKey);
+      const state = window.SafeStorage.getItem(this.storageKey);
 
-      const raw =
-        localStorage.getItem(
-          this.storageKey
-        );
-
-
-      if (!raw) {
-
+      if (!state) {
         return this.getDefaultState();
       }
 
-
-      const state =
-        JSON.parse(raw);
-
-
-      /*
-       * Protect against missing properties
-       * when an older local state exists.
-       */
-
       return {
-
         ...this.getDefaultState(),
-
         ...state,
-
-        badges:
-          Array.isArray(state.badges)
-            ? state.badges
-            : ['🐣 Fresh Start'],
-
-        history:
-          Array.isArray(state.history)
-            ? state.history
-            : []
-
+        personalizedRoadmap: window.activePersonalizedRoadmap || state.personalizedRoadmap || null,
+        badges: Array.isArray(state.badges) ? state.badges : ['🐣 Fresh Start'],
+        history: Array.isArray(state.history) ? state.history.slice(-15) : []
       };
-
-
     } catch (error) {
-
-      console.error(
-        '❌ Could not read progress state:',
-        error
-      );
-
+      console.error('❌ Could not read progress state:', error);
       return this.getDefaultState();
     }
   }
-
 
   /* ==========================================================
      SAVE USER STATE
      ========================================================== */
 
   saveUserState(state) {
+    if (state && state.personalizedRoadmap) {
+      window.activePersonalizedRoadmap = state.personalizedRoadmap;
+    }
 
-    localStorage.setItem(
-      this.storageKey,
-      JSON.stringify(state)
-    );
-
+    const sanitized = window.SafeStorage.sanitizeState(state);
+    window.SafeStorage.setItem(this.storageKey, sanitized);
     return state;
   }
 
@@ -2425,10 +2512,11 @@ class PlacifySupervisorAgent {
       // Priority 3: If roadmap missing for quiz_completed user, auto-generate roadmap
       if (!roadmap) {
         console.log(`⚡ Quiz completed for ${userId} but roadmap missing. Auto-generating...`);
+        const dsaLang = profile ? (profile.dsa_programming_language || profile.dsaProgrammingLanguage) : null;
         const genRes = await fetch('http://localhost:5000/api/roadmap/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId })
+          body: JSON.stringify({ user_id: userId, dsa_programming_language: dsaLang })
         });
         const genData = await genRes.json();
         if (genData.success && genData.roadmap) {
@@ -2549,12 +2637,25 @@ class PlacifySupervisorAgent {
 
     let finalRoadmap = null;
     try {
+      const isSelfAssessed = !!(evaluation && (evaluation.isSelfAssessed || evaluation.is_self_assessed));
+      const declaredLevel = (evaluation && (evaluation.skillTier || evaluation.skill_level || evaluation.skill_tier)) || userProfile.currentSkillLevel || userProfile.current_skill_level || 'BEGINNER';
+      if (userProfile) {
+        userProfile.currentSkillLevel = declaredLevel;
+        userProfile.current_skill_level = declaredLevel;
+      }
+      const dsaLang = userProfile ? (userProfile.dsa_programming_language || userProfile.dsaProgrammingLanguage) : null;
       const res = await fetch('http://localhost:5000/api/roadmap/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userProfile.user_id,
-          quizEvaluation: evaluation
+          dsa_programming_language: dsaLang,
+          generation_mode: isSelfAssessed ? 'direct' : 'quiz',
+          quizEvaluation: isSelfAssessed ? null : evaluation,
+          current_skill_level: declaredLevel,
+          target_skill_level: userProfile.targetSkillLevel || userProfile.target_skill_level || 'ADVANCED',
+          timeline_months: userProfile.timelineMonths || 4,
+          daily_hours: userProfile.dailyHours || 2
         })
       });
       const data = await res.json();
@@ -2587,17 +2688,49 @@ class PlacifySupervisorAgent {
     }
 
     if (!finalRoadmap) {
-      const baseRoadmap =
-        this.roadmapGenerator.generateBaseRoadmap(
-          userProfile.domainId,
-          userProfile.timelineMonths || userProfile.timelineWeeks,
-          userProfile.dailyHours
-        );
-      finalRoadmap =
-        this.personalizedRoadmap.customizeRoadmap(
-          baseRoadmap,
-          evaluation
-        );
+      // Dynamic fallback generator (Zero hardcoded data.js milestones)
+      const domainKey = userProfile.domainId || userProfile.chosen_domain || 'datascience';
+      const months = userProfile.timelineMonths || 6;
+      const hours = userProfile.dailyHours || 2;
+      const currentLevel = (userProfile.currentSkillLevel || 'BEGINNER').toUpperCase();
+      const targetLevel = (userProfile.targetSkillLevel || 'ADVANCED').toUpperCase();
+
+      const monthlyRoadmap = [];
+      for (let m = 1; m <= months; m++) {
+        const monthWeeks = [];
+        const mLevel = (m === 1 ? currentLevel : (m === months ? targetLevel : 'INTERMEDIATE'));
+        for (let w = 1; w <= 4; w++) {
+          const globalWeek = (m - 1) * 4 + w;
+          const days = [];
+          for (let d = 1; d <= 7; d++) {
+            const globalDay = (globalWeek - 1) * 7 + d;
+            const taskMins = Math.round(hours * 60);
+            days.push({
+              id: `day_${globalDay}`, day_number: globalDay, week_number: globalWeek, month_number: m,
+              topic: `${domainKey} Module ${m}`, estimated_minutes: taskMins, total_minutes: taskMins,
+              tasks: [
+                { taskId: `task_${globalDay}_1`, title: `Learn: ${domainKey} Topic ${globalWeek}`, durationMinutes: Math.round(taskMins * 0.6), taskType: 'LEARN', completed: false },
+                { taskId: `task_${globalDay}_2`, title: `Practice: ${domainKey} Drills ${globalWeek}`, durationMinutes: Math.round(taskMins * 0.4), taskType: 'PRACTICE', completed: false }
+              ]
+            });
+          }
+          monthWeeks.push({
+            weekId: `week_${globalWeek}`, week_number: globalWeek, month_number: m, sequenceIndex: globalWeek,
+            title: `Week ${globalWeek}: ${domainKey} Concept Focus ${globalWeek}`, objective: `Build ${mLevel} skills`, difficulty: mLevel, estimated_hours: Math.round(hours * 7), days
+          });
+        }
+        monthlyRoadmap.push({
+          monthId: `month_${m}`, month_number: m, title: `Month ${m}: ${domainKey} (${mLevel} Level)`,
+          objective: `Master ${mLevel} topics`, topics: [domainKey], subtopics: [`Focus ${m}`], difficulty: mLevel,
+          estimated_hours: Math.round(hours * 28), weeks: monthWeeks
+        });
+      }
+
+      finalRoadmap = {
+        userId: userProfile.user_id, domain: domainKey, timeline_months: months, daily_hours: hours,
+        current_skill_level: currentLevel, target_skill_level: targetLevel, assessment_status: evaluation ? 'completed' : 'not_attempted',
+        monthly_roadmap: monthlyRoadmap
+      };
     }
 
 
@@ -2650,6 +2783,115 @@ class PlacifySupervisorAgent {
       personalizedRoadmap:
         finalRoadmap
 
+    };
+  }
+
+  async generatePersonalizedRoadmap(userProfile, evaluation, options = {}) {
+    if (!userProfile) {
+      throw new Error('User profile is missing.');
+    }
+
+    const timelineMonths = parseInt(options.timeline_months || options.timelineMonths || userProfile.timelineMonths, 10) || 4;
+    const dailyHours = parseFloat(options.daily_hours || options.dailyHours || userProfile.dailyHours) || 2.0;
+
+    userProfile.timelineMonths = timelineMonths;
+    userProfile.dailyHours = dailyHours;
+
+    this.logAgentAction(
+      'personalized_roadmap',
+      'Generating Hierarchical Personalized Roadmap',
+      `Requesting server pipeline for user ${userProfile.user_id} (${timelineMonths}m, ${dailyHours}h/day)`
+    );
+
+    let finalRoadmap = null;
+    try {
+      const isSelfAssessed = !!(evaluation && (evaluation.isSelfAssessed || evaluation.is_self_assessed));
+      const declaredLevel = (evaluation && (evaluation.skillTier || evaluation.skill_level || evaluation.skill_tier)) || userProfile.currentSkillLevel || userProfile.current_skill_level || 'BEGINNER';
+      if (userProfile) {
+        userProfile.currentSkillLevel = declaredLevel;
+        userProfile.current_skill_level = declaredLevel;
+      }
+      const dsaLang = userProfile ? (userProfile.dsa_programming_language || userProfile.dsaProgrammingLanguage) : null;
+      const res = await fetch('http://localhost:5000/api/roadmap/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userProfile.user_id,
+          dsa_programming_language: dsaLang,
+          generation_mode: isSelfAssessed ? 'direct' : 'quiz',
+          quizEvaluation: isSelfAssessed ? null : evaluation,
+          current_skill_level: declaredLevel,
+          target_skill_level: userProfile.targetSkillLevel || userProfile.target_skill_level || 'ADVANCED',
+          timeline_months: timelineMonths,
+          daily_hours: dailyHours
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.roadmap) {
+        finalRoadmap = data.roadmap;
+        finalRoadmap.dailyTasks = [];
+        let dayCounter = 1;
+        (finalRoadmap.monthly_roadmap || []).forEach(m => {
+          (m.weeks || []).forEach(w => {
+            (w.days || []).forEach(d => {
+              (d.tasks || []).forEach(t => {
+                finalRoadmap.dailyTasks.push({
+                  dayNumber: dayCounter,
+                  milestoneId: `m${m.month_number}_w${w.week_number}_d${d.day_number}`,
+                  milestoneTitle: w.title,
+                  topic: d.topic || (w.topics && w.topics[0]) || 'General',
+                  conceptTitle: t.title,
+                  type: t.type,
+                  completed: false,
+                  score: null
+                });
+              });
+              dayCounter++;
+            });
+          });
+        });
+      }
+    } catch (err) {
+      console.warn('Backend API roadmap generation offline, generating fallback:', err);
+    }
+
+    if (!finalRoadmap) {
+      const baseRoadmap =
+        this.roadmapGenerator.generateBaseRoadmap(
+          userProfile.domainId || userProfile.chosen_domain,
+          timelineMonths,
+          dailyHours
+        );
+      finalRoadmap =
+        this.personalizedRoadmap.customizeRoadmap(
+          baseRoadmap,
+          evaluation
+        );
+    }
+
+    const state = this.progressTracker.getUserState();
+    state.isOnboarded = true;
+    state.currentDomain = userProfile.domainId || userProfile.chosen_domain;
+    state.skillLevel = (evaluation && (evaluation.skillTier || evaluation.skill_level)) || 'BEGINNER';
+    state.userProfile = {
+      ...userProfile,
+      timeline_months: timelineMonths,
+      daily_hours: dailyHours
+    };
+    state.evaluation = evaluation;
+    state.personalizedRoadmap = finalRoadmap;
+    this.progressTracker.saveUserState(state);
+
+    this.logAgentAction(
+      'SupervisorAgent',
+      'Personalized Roadmap Generated Successfully',
+      `Roadmap configured for ${userProfile.user_id} (${timelineMonths} months, ${dailyHours} hours/day).`
+    );
+
+    return {
+      userProfile,
+      evaluation,
+      personalizedRoadmap: finalRoadmap
     };
   }
 

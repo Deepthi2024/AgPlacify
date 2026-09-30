@@ -1,7 +1,7 @@
-const { getKnowledgeGraph, getAllSkillsInGraph } = require('../engine/knowledgeGraph');
-const { buildUserSkillProfile, updateSkillMastery } = require('../engine/skillProfiler');
-const { generateIntelligentRoadmap, validateRoadmap, validateDailyTasks } = require('../engine/roadmapPlanner');
-const { recalculateAdaptiveRoadmap } = require('../engine/adaptiveEngine');
+const { getKnowledgeGraph, getAllSkillsInGraph } = require('../backend/engine/knowledgeGraph');
+const { buildUserSkillProfile, updateSkillMastery } = require('../backend/engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap, validateDailyTasks } = require('../backend/engine/roadmapPlanner');
+const { recalculateAdaptiveRoadmap } = require('../backend/engine/adaptiveEngine');
 
 async function runTestSuite() {
   console.log('🧪 ========================================================');

@@ -3,9 +3,9 @@
  */
 
 const assert = require('assert');
-const { generateIntelligentRoadmap, validateRoadmap } = require('../engine/roadmapPlanner');
-const { getKnowledgeGraph, normalizeDomainKey, DOMAIN_CONFIG } = require('../engine/knowledgeGraph');
-const { buildUserSkillProfile } = require('../engine/skillProfiler');
+const { generateIntelligentRoadmap, validateRoadmap } = require('../backend/engine/roadmapPlanner');
+const { getKnowledgeGraph, normalizeDomainKey, DOMAIN_CONFIG } = require('../backend/engine/knowledgeGraph');
+const { buildUserSkillProfile } = require('../backend/engine/skillProfiler');
 
 const domainsToTest = [
   'fullstack',

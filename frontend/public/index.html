@@ -27,6 +27,25 @@
       </div>
     </div>
 
+    <!-- MAIN NAVIGATION BAR -->
+    <nav id="app-nav-bar" class="app-nav-bar" style="display: flex; align-items: center; gap: 0.4rem; background: rgba(255,255,255,0.04); padding: 0.35rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--border-glass);">
+      <button type="button" id="nav-roadmap-btn" class="nav-link-btn active" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: var(--radius-full); border: none; background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+        <i class="ph ph-map-trifold" style="color: var(--accent-cyan);"></i> Roadmap
+      </button>
+      <button type="button" id="nav-daily-hub-btn" class="nav-link-btn" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: var(--radius-full); border: none; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+        <i class="ph ph-calendar-check" style="color: var(--accent-emerald);"></i> Daily Hub
+      </button>
+      <button type="button" id="nav-progress-btn" class="nav-link-btn" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: var(--radius-full); border: none; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+        <i class="ph ph-chart-bar-horizontal" style="color: var(--accent-violet);"></i> Progress
+      </button>
+      <button type="button" id="nav-tech-news-btn" class="nav-link-btn" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: var(--radius-full); border: none; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+        <i class="ph ph-newspaper" style="color: var(--accent-amber);"></i> Tech News
+      </button>
+      <button type="button" id="nav-internships-btn" class="nav-link-btn" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: var(--radius-full); border: none; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+        <i class="ph ph-briefcase" style="color: var(--accent-blue);"></i> Internships
+      </button>
+    </nav>
+
     <div class="header-actions">
       <div id="header-user-badge" class="user-badge"
         style="display: none; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.8rem; border-radius: var(--radius-full); border: 1px solid var(--border-color);">
@@ -114,20 +133,7 @@
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-              <div class="form-group">
-                <label for="timeline-months"><i class="ph ph-calendar"></i> Preparation Timeline
-                  (`timeline_months`):</label>
-                <input type="number" id="timeline-months" class="form-control" min="1" step="1"
-                  placeholder="Enter preparation duration in months" required>
-              </div>
 
-              <div class="form-group">
-                <label for="daily-hours"><i class="ph ph-clock"></i> Daily Commitment (`daily_hours`):</label>
-                <input type="number" id="daily-hours" class="form-control" min="0.5" step="0.5"
-                  placeholder="Enter hours per day" required>
-              </div>
-            </div>
 
             <div id="reg-error-alert" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
 
@@ -184,6 +190,66 @@
 
           <div id="domain-selection-grid" class="domain-grid" style="margin-top: 1.5rem;">
             <!-- Dynamically populated by app.js -->
+          </div>
+
+          <!-- DSA Programming Language Selection Step (Shown ONLY when DSA domain is selected) -->
+          <div id="dsa-language-selection-card" style="display: none; margin-top: 1.5rem; border: 1px solid rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.7); padding: 1.5rem; border-radius: var(--radius-md);">
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem;">
+              <i class="ph ph-code" style="color: #38bdf8; font-size: 1.4rem;"></i>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0;">Choose Your Programming Language</h3>
+            </div>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.3rem;">
+              Select the programming language you want to use while learning Data Structures and Algorithms.
+            </p>
+            <p style="font-size: 0.82rem; color: #38bdf8; margin-bottom: 1.2rem; font-weight: 500;">
+              Your DSA roadmap will teach and practice DSA concepts using this language.
+            </p>
+
+            <div id="dsa-lang-options-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 0.5rem;">
+              <!-- C++ Option -->
+              <div class="dsa-lang-option" data-lang="C++" style="background: rgba(255, 255, 255, 0.04); border: 2px solid var(--border-glass); border-radius: var(--radius-sm); padding: 1rem; cursor: pointer; transition: all 0.2s ease;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-weight: 800; font-size: 1.05rem; color: #38bdf8;">C++</span>
+                  <i class="ph ph-check-circle dsa-lang-check" style="display: none; color: #38bdf8; font-size: 1.2rem;"></i>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                  Great for competitive programming, STL-based DSA practice, and performance-focused problem solving.
+                </p>
+              </div>
+
+              <!-- Java Option -->
+              <div class="dsa-lang-option" data-lang="Java" style="background: rgba(255, 255, 255, 0.04); border: 2px solid var(--border-glass); border-radius: var(--radius-sm); padding: 1rem; cursor: pointer; transition: all 0.2s ease;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-weight: 800; font-size: 1.05rem; color: #fbbf24;">Java</span>
+                  <i class="ph ph-check-circle dsa-lang-check" style="display: none; color: #fbbf24; font-size: 1.2rem;"></i>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                  Strongly typed language widely used for interviews, enterprise software, and DSA practice.
+                </p>
+              </div>
+
+              <!-- Python Option -->
+              <div class="dsa-lang-option" data-lang="Python" style="background: rgba(255, 255, 255, 0.04); border: 2px solid var(--border-glass); border-radius: var(--radius-sm); padding: 1rem; cursor: pointer; transition: all 0.2s ease;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-weight: 800; font-size: 1.05rem; color: #4ade80;">Python</span>
+                  <i class="ph ph-check-circle dsa-lang-check" style="display: none; color: #4ade80; font-size: 1.2rem;"></i>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                  Readable and beginner-friendly, allowing you to focus on algorithms and problem solving.
+                </p>
+              </div>
+
+              <!-- JavaScript Option -->
+              <div class="dsa-lang-option" data-lang="JavaScript" style="background: rgba(255, 255, 255, 0.04); border: 2px solid var(--border-glass); border-radius: var(--radius-sm); padding: 1rem; cursor: pointer; transition: all 0.2s ease;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                  <span style="font-weight: 800; font-size: 1.05rem; color: #f472b6;">JavaScript</span>
+                  <i class="ph ph-check-circle dsa-lang-check" style="display: none; color: #f472b6; font-size: 1.2rem;"></i>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                  Useful for web developers who want to practice DSA in the language they already use.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div id="domain-select-error" class="alert-box alert-error" style="display: none; margin-top: 1rem;"></div>
@@ -524,10 +590,57 @@
           </div>
         </div>
 
-        <div style="margin-top: 2rem; text-align: right;">
-          <button id="build-roadmap-btn" class="btn btn-primary">
-            Build Personalized Milestone Roadmap <i class="ph ph-tree-structure"></i>
-          </button>
+        <!-- Recommended Learning Plan Section -->
+        <div id="recommended-learning-plan-container" style="margin-top: 2rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--accent-violet); border-radius: var(--radius-md); padding: 1.5rem;">
+          <div style="font-size: 1.1rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
+            <i class="ph ph-sparkle" style="color: var(--accent-violet); font-size: 1.3rem;"></i>
+            Recommended Learning Plan
+          </div>
+          <p id="plan-recommendation-reason" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.2rem; line-height: 1.5;">
+            Based on your diagnostic assessment and target level, we recommend the following learning plan:
+          </p>
+
+          <!-- Recommendation Display Cards -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: var(--radius-sm); padding: 1rem; text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Recommended Daily Commitment</div>
+              <div id="rec-daily-hours-display" style="font-size: 1.4rem; font-weight: 800; color: var(--accent-violet); margin-top: 0.3rem;">2.0 Hours / Day</div>
+            </div>
+            <div style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: var(--radius-sm); padding: 1rem; text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Recommended Timeline</div>
+              <div id="rec-timeline-months-display" style="font-size: 1.4rem; font-weight: 800; color: var(--accent-cyan); margin-top: 0.3rem;">4 Months</div>
+            </div>
+          </div>
+
+          <!-- Editable Input Fields Initialized with Recommendation -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 1.2rem; margin-bottom: 1.5rem;">
+            <div style="font-size: 0.85rem; font-weight: 600; color: #fff; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ph ph-sliders" style="color: var(--accent-emerald);"></i> Confirm or Adjust Your Plan Parameters
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="plan-timeline-months" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">
+                  <i class="ph ph-calendar"></i> Preparation Timeline (`months`):
+                </label>
+                <input type="number" id="plan-timeline-months" class="form-control" min="1" max="24" step="1" value="4" style="width: 100%;">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="plan-daily-hours" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">
+                  <i class="ph ph-clock"></i> Daily Commitment (`daily_hours`):
+                </label>
+                <input type="number" id="plan-daily-hours" class="form-control" min="0.5" max="12" step="0.5" value="2.0" style="width: 100%;">
+              </div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.6rem;">
+              <i class="ph ph-info" style="color: var(--accent-emerald);"></i> You can keep our recommended values or adjust them based on your schedule availability.
+            </div>
+          </div>
+
+          <div style="text-align: right;">
+            <button id="build-roadmap-btn" class="btn btn-primary" style="font-size: 0.95rem; padding: 0.7rem 1.5rem;">
+              Build My Personalized Roadmap <i class="ph ph-tree-structure"></i>
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -574,6 +687,10 @@
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Selected Domain</div>
             <div id="rm-summary-domain" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 0.2rem;">-</div>
+          </div>
+          <div id="rm-summary-lang-container" style="display: none;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">DSA Language</div>
+            <div id="rm-summary-lang" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8; margin-top: 0.2rem;">-</div>
           </div>
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Timeline</div>
@@ -647,6 +764,75 @@
                 ⏱️ Workload
               </span>
               <span id="task-type-badge" class="node-tag STANDARD">BEGINNER</span>
+            </div>
+          </div>
+
+          <!-- COMPLETED & LOCKED BANNER -->
+          <div id="daily-hub-completed-locked-banner" style="display: none;"></div>
+
+          <!-- SUNDAY REVISION SUMMARY BANNER -->
+          <div id="sunday-revision-summary-banner" style="display: none;"></div>
+
+          <!-- DAILY ADAPTIVE ASSESSMENT OPTIONS BLOCK -->
+          <div id="daily-assessment-options-container" style="margin-bottom: 1.5rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 8px; padding: 1.2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.6rem;">
+              <div>
+                <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ph ph-clipboard-text" style="color: var(--accent-violet);"></i> Daily Assessment & Completion Options
+                </h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.2rem 0 0 0;">
+                  Complete today's learning by taking a dynamic quiz or marking complete manually:
+                </p>
+              </div>
+              <div id="daily-hub-assessment-status-badge">
+                <span style="font-size: 0.78rem; color: var(--text-muted);">Status: Pending</span>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+              <!-- OPTION 1: TAKE QUIZ -->
+              <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(16, 185, 129, 0.3); padding: 1rem; border-radius: 6px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                  <div style="font-weight: 700; color: var(--accent-emerald); font-size: 0.92rem; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="ph ph-note-pencil"></i> Option 1: Take Quiz
+                  </div>
+                  <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 0.8rem;">
+                    Dynamically generated assessment for today's specific topic. Evaluates topic mastery and triggers Sunday revision if needed.
+                  </div>
+                </div>
+                <button id="daily-hub-take-quiz-btn" class="btn btn-emerald" style="width: 100%; justify-content: center; font-size: 0.82rem; font-weight: 700;">
+                  Take Quiz <i class="ph ph-arrow-right"></i>
+                </button>
+              </div>
+
+              <!-- OPTION 2: MARK COMPLETE MANUALLY -->
+              <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1rem; border-radius: 6px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                  <div style="font-weight: 700; color: #fff; font-size: 0.92rem; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="ph ph-check-square"></i> Option 2: Mark Complete Manually
+                  </div>
+                  <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 0.8rem;">
+                    Mark today's learning activities complete manually without quiz evaluation. (Does NOT create weak topics or trigger Sunday revision).
+                  </div>
+                </div>
+                <button id="daily-hub-manual-complete-btn" class="btn btn-secondary" style="width: 100%; justify-content: center; font-size: 0.82rem; font-weight: 700;">
+                  Mark Complete Manually <i class="ph ph-check"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- MANUAL COMPLETION CONFIRMATION CONTAINER -->
+            <div id="manual-completion-confirm-box" style="display: none; margin-top: 1rem; background: rgba(0,0,0,0.4); border: 1px dashed rgba(255,255,255,0.2); border-radius: 6px; padding: 0.9rem;">
+              <label style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.88rem; color: #fff; font-weight: 600; cursor: pointer;">
+                <input type="checkbox" id="manual-completion-checkbox" style="width: 18px; height: 18px; cursor: pointer;" />
+                I completed today's learning activities.
+              </label>
+              <div style="margin-top: 0.8rem; display: flex; gap: 0.6rem; justify-content: flex-end;">
+                <button id="cancel-manual-confirm-btn" class="btn btn-secondary" style="font-size: 0.78rem; padding: 0.3rem 0.7rem;">Cancel</button>
+                <button id="submit-manual-confirm-btn" class="btn btn-emerald" style="font-size: 0.78rem; padding: 0.3rem 0.7rem;" disabled>
+                  Confirm Manual Completion <i class="ph ph-check-circle"></i>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -752,38 +938,84 @@
           <i class="ph ph-chart-bar-horizontal"></i>
           Phase 6: Mastery & Progress Analytics Studio
         </div>
-        <p class="section-subtitle">Managed by <strong
-            style="color: var(--accent-emerald);">`progress_tracker`</strong>. Real-time updates on mastery %, streaks,
-          XP gain, and skill tier upgrades.</p>
+        <p class="section-subtitle">Real-time dynamic progress tracked from MongoDB state — calculated by <strong style="color: var(--accent-emerald);">PersonalizedRoadmapAgent</strong> backend.</p>
 
-        <div
-          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.2rem; margin-bottom: 2rem;">
+        <!-- TOP SUMMARY METRICS -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.2rem; margin-bottom: 1.8rem;">
           <div class="glass-card" style="text-align: center; padding: 1.2rem;">
-            <i class="ph ph-percent" style="font-size: 2rem; color: var(--accent-violet);"></i>
-            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;"
-              id="analytics-mastery-num">0%</div>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">Domain Mastery</div>
+            <i class="ph ph-chart-pie" style="font-size: 2rem; color: var(--accent-violet);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-mastery-num">0%</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Overall Roadmap Progress</div>
+            <div style="font-size: 0.75rem; color: var(--accent-violet); font-weight: 700; margin-top: 0.2rem;" id="analytics-days-count">0 / 0 Days</div>
           </div>
 
           <div class="glass-card" style="text-align: center; padding: 1.2rem;">
             <i class="ph ph-flame" style="font-size: 2rem; color: var(--accent-amber);"></i>
-            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;"
-              id="analytics-streak-num">1</div>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-streak-num">0</div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">Current Streak (Days)</div>
+            <div style="font-size: 0.75rem; color: var(--accent-amber); font-weight: 700; margin-top: 0.2rem;" id="analytics-streak-sub">Consecutive Active Days</div>
           </div>
 
           <div class="glass-card" style="text-align: center; padding: 1.2rem;">
-            <i class="ph ph-lightning" style="font-size: 2rem; color: var(--accent-cyan);"></i>
-            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;"
-              id="analytics-xp-num">0</div>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">Total XP Earned</div>
+            <i class="ph ph-clock" style="font-size: 2rem; color: var(--accent-cyan);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-hours-num">0 / 0 hrs</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Learning Hours</div>
+            <div style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 700; margin-top: 0.2rem;" id="analytics-hours-sub">Completed / Planned</div>
           </div>
 
           <div class="glass-card" style="text-align: center; padding: 1.2rem;">
-            <i class="ph ph-shield-check" style="font-size: 2rem; color: var(--accent-emerald);"></i>
-            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;"
-              id="analytics-tier-name">BEGINNER</div>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">Current Skill Tier</div>
+            <i class="ph ph-exam" style="font-size: 2rem; color: var(--accent-emerald);"></i>
+            <div style="font-size: 1.8rem; font-family: var(--font-heading); font-weight: 800; margin: 0.4rem 0;" id="analytics-quiz-score-num">0%</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Quiz Performance Avg</div>
+            <div style="font-size: 0.75rem; color: var(--accent-emerald); font-weight: 700; margin-top: 0.2rem;" id="analytics-quizzes-count">0 Quizzes Taken</div>
+          </div>
+        </div>
+
+        <!-- DETAILED PROGRESS BREAKDOWN GRID -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.2rem; margin-bottom: 2rem;">
+          <!-- TODAY'S PROGRESS CARD -->
+          <div class="glass-card" style="padding: 1.2rem;">
+            <div style="font-weight: 700; font-size: 1rem; color: #fff; margin-bottom: 0.8rem; display: flex; align-items: center; justify-content: space-between;">
+              <span><i class="ph ph-calendar-check" style="color: var(--accent-cyan);"></i> Today's Learning Status</span>
+              <span id="analytics-today-badge" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(255,255,255,0.08); color: var(--text-muted);">In Progress</span>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;" id="analytics-today-date">Date: Today</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.6rem;" id="analytics-today-tasks">Tasks: 0 / 0 completed</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);" id="analytics-today-mode">Completion Mode: —</div>
+          </div>
+
+          <!-- WEEKLY & MONTHLY PROGRESS CARD -->
+          <div class="glass-card" style="padding: 1.2rem;">
+            <div style="font-weight: 700; font-size: 1rem; color: #fff; margin-bottom: 0.8rem;">
+              <i class="ph ph-calendar" style="color: var(--accent-violet);"></i> Weekly & Monthly Progression
+            </div>
+            <div style="margin-bottom: 0.8rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.3rem;">
+                <span id="analytics-week-label">Current Week Progress</span>
+                <strong id="analytics-week-pct">0%</strong>
+              </div>
+              <div class="progress-bar-container" style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">
+                <div id="analytics-week-fill" style="width: 0%; height: 100%; background: var(--accent-violet); transition: width 0.4s ease;"></div>
+              </div>
+            </div>
+            <div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.3rem;">
+                <span id="analytics-month-label">Current Month Progress</span>
+                <strong id="analytics-month-pct">0%</strong>
+              </div>
+              <div class="progress-bar-container" style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">
+                <div id="analytics-month-fill" style="width: 0%; height: 100%; background: var(--accent-emerald); transition: width 0.4s ease;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUNDAY REVISION STATUS CARD -->
+          <div class="glass-card" style="padding: 1.2rem;">
+            <div style="font-weight: 700; font-size: 1rem; color: #fff; margin-bottom: 0.8rem;">
+              <i class="ph ph-arrow-clockwise" style="color: var(--accent-amber);"></i> Sunday Revision Status
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;" id="analytics-revision-count">Topics Needing Revision: 0</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);" id="analytics-revision-status-msg">No quiz-based revision required.</div>
           </div>
         </div>
 
@@ -791,6 +1023,81 @@
           <button id="continue-learning-btn" class="btn btn-primary">
             Continue Next Daily Learning Task <i class="ph ph-arrow-right"></i>
           </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 8: Real-World Tech News View -->
+    <section id="view-tech-news" class="view-section">
+      <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem;">
+          <div>
+            <h2 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.6rem;">
+              <i class="ph ph-newspaper" style="color: var(--accent-amber);"></i> Real-World Tech News
+            </h2>
+          </div>
+
+          <!-- News Search Box & Sort Controls -->
+          <div style="display: flex; gap: 0.6rem; width: 100%; max-width: 540px; flex-wrap: wrap;">
+            <input type="text" id="tech-news-search-input" placeholder="Search tech news (e.g. LLM, React, Security)..." style="flex: 1; min-width: 200px; padding: 0.65rem 1rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.4); color: #fff; font-size: 0.85rem;" />
+            <button id="tech-news-search-btn" class="btn btn-secondary" style="padding: 0.65rem 1rem; border-radius: var(--radius-full);">
+              <i class="ph ph-magnifying-glass"></i>
+            </button>
+            <select id="tech-news-sort-select" style="padding: 0.65rem 0.9rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.6); color: var(--accent-amber); font-size: 0.82rem; font-weight: 600; cursor: pointer;">
+              <option value="latest">Latest</option>
+              <option value="relevant">Most Relevant</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- News Category Pills -->
+        <div id="tech-news-category-pills" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <!-- Dynamically populated filter pills -->
+        </div>
+
+        <!-- News Cards Grid Container -->
+        <div id="tech-news-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.2rem;">
+          <div style="padding: 3rem; text-align: center; color: var(--text-muted); grid-column: 1 / -1;">
+            <i class="ph ph-spinner spinner" style="font-size: 2rem; color: var(--accent-amber);"></i><br/><br/>
+            Fetching real-world tech news...
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 9: Real-World Internships View -->
+    <section id="view-internships" class="view-section">
+      <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem;">
+          <div>
+            <h2 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.6rem;">
+              <i class="ph ph-briefcase" style="color: var(--accent-blue);"></i> Internship & Early Career Opportunities
+            </h2>
+            <div style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0.3rem; display: flex; align-items: center; gap: 0.4rem;">
+              Personalized for: <span id="internship-domain-badge" style="background: rgba(59, 130, 246, 0.18); color: var(--accent-blue); font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.78rem;">Data Science & Machine Learning</span>
+            </div>
+          </div>
+
+          <!-- Internship Search Box -->
+          <div style="display: flex; gap: 0.6rem; width: 100%; max-width: 400px;">
+            <input type="text" id="internship-search-input" placeholder="Search internships (e.g. Python, Remote, SOC)..." style="flex: 1; padding: 0.65rem 1rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.4); color: #fff; font-size: 0.85rem;" />
+            <button id="internship-search-btn" class="btn btn-secondary" style="padding: 0.65rem 1rem; border-radius: var(--radius-full);">
+              <i class="ph ph-magnifying-glass"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Internship Filter Pills -->
+        <div id="internship-filter-pills" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <!-- Dynamically populated filter pills: All, Remote, On-site, Latest, Most Relevant -->
+        </div>
+
+        <!-- Internship Cards Grid Container -->
+        <div id="internships-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.2rem;">
+          <div style="padding: 3rem; text-align: center; color: var(--text-muted); grid-column: 1 / -1;">
+            <i class="ph ph-spinner spinner" style="font-size: 2rem; color: var(--accent-blue);"></i><br/><br/>
+            Fetching real-world internships & early career opportunities...
+          </div>
         </div>
       </div>
     </section>
